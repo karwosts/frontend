@@ -16,6 +16,7 @@ import {
   computeHistory,
   HistoryResult,
   subscribeHistoryStatesTimeWindow,
+  subscribeHistory,
 } from "../../../data/history";
 import { HomeAssistant } from "../../../types";
 import { hasConfigOrEntitiesChanged } from "../common/has-changed";
@@ -50,6 +51,10 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
   private _entityIds: string[] = [];
 
   private _hoursToShow = DEFAULT_HOURS_TO_SHOW;
+
+  @state() private _startDate?: Date;
+
+  @state() private _endDate?: Date;
 
   private _interval?: number;
 
@@ -101,26 +106,56 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
     if (!isComponentLoaded(this.hass!, "history") || this._subscribed) {
       return;
     }
-    this._subscribed = subscribeHistoryStatesTimeWindow(
-      this.hass!,
-      (combinedHistory) => {
-        if (!this._subscribed) {
-          // Message came in before we had a chance to unload
-          return;
-        }
-        this._stateHistory = computeHistory(
-          this.hass!,
-          combinedHistory,
-          this.hass!.localize
-        );
-      },
-      this._hoursToShow,
-      this._entityIds
-    ).catch((err) => {
-      this._subscribed = undefined;
-      this._error = err;
-    });
-    this._setRedrawTimer();
+
+    if (this._startDate && this._endDate) {
+      this._error = undefined;
+      this._subscribed = subscribeHistory(
+        this.hass!,
+
+        (combinedHistory) => {
+          if (!this._subscribed) {
+            // Message came in before we had a chance to unload
+            return;
+          }
+          this._stateHistory = computeHistory(
+            this.hass!,
+            combinedHistory,
+            this.hass!.localize
+          );
+        },
+        this._startDate,
+        this._endDate,
+        this._entityIds
+      ).catch((err) => {
+        this._subscribed = undefined;
+        this._error = err;
+      });
+      const now = new Date();
+      if (this._endDate > now) {
+        this._setRedrawTimer();
+      }
+    } else {
+      this._subscribed = subscribeHistoryStatesTimeWindow(
+        this.hass!,
+        (combinedHistory) => {
+          if (!this._subscribed) {
+            // Message came in before we had a chance to unload
+            return;
+          }
+          this._stateHistory = computeHistory(
+            this.hass!,
+            combinedHistory,
+            this.hass!.localize
+          );
+        },
+        this._hoursToShow,
+        this._entityIds
+      ).catch((err) => {
+        this._subscribed = undefined;
+        this._error = err;
+      });
+      this._setRedrawTimer();
+    }
   }
 
   private _redrawGraph() {
@@ -147,7 +182,40 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
     if (changedProps.has("_stateHistory")) {
       return true;
     }
+    if (
+      this.hass &&
+      changedProps.has("hass") &&
+      changedProps.get("hass") &&
+      ((this._config?.start_time &&
+        this.hass.states[this._config.start_time] !==
+          changedProps.get("hass").states[this._config.start_time]) ||
+        (this._config?.end_time &&
+          this.hass.states[this._config.end_time] !==
+            changedProps.get("hass").states[this._config.end_time]))
+    ) {
+      return true;
+    }
     return hasConfigOrEntitiesChanged(this, changedProps);
+  }
+
+  protected willUpdate(changedProps: PropertyValues) {
+    super.willUpdate(changedProps);
+
+    const startTimestamp =
+      this._config?.start_time &&
+      this.hass?.states[this._config.start_time]?.attributes.timestamp;
+    const startDate = startTimestamp && new Date(startTimestamp * 1000);
+    const endTimestamp =
+      this._config?.end_time &&
+      this.hass?.states[this._config.end_time]?.attributes.timestamp;
+    const endDate = endTimestamp && new Date(endTimestamp * 1000);
+
+    if (this._startDate !== startDate) {
+      this._startDate = startDate;
+    }
+    if (this._endDate !== endDate) {
+      this._endDate = endDate;
+    }
   }
 
   protected updated(changedProps: PropertyValues) {
@@ -170,9 +238,11 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
       | undefined;
 
     if (
-      changedProps.has("_config") &&
-      (oldConfig?.entities !== this._config.entities ||
-        oldConfig?.hours_to_show !== this._config.hours_to_show)
+      changedProps.has("_startDate") ||
+      changedProps.has("_endDate") ||
+      (changedProps.has("_config") &&
+        (oldConfig?.entities !== this._config.entities ||
+          oldConfig?.hours_to_show !== this._config.hours_to_show))
     ) {
       this._unsubscribeHistory();
       this._subscribeHistory();
@@ -204,8 +274,12 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
                   .isLoadingData=${!this._stateHistory}
                   .historyData=${this._stateHistory}
                   .names=${this._names}
-                  up-to-now
-                  .hoursToShow=${this._hoursToShow}
+                  .upToNow=${!(this._startDate || this._endDate)}
+                  .startTime=${this._startDate}
+                  .endTime=${this._endDate}
+                  .hoursToShow=${this._startDate && this._endDate
+                    ? undefined
+                    : this._hoursToShow}
                   .showNames=${this._config.show_names !== undefined
                     ? this._config.show_names
                     : true}
