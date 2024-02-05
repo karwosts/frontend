@@ -1,7 +1,7 @@
 import { Connection } from "home-assistant-js-websocket";
 import { computeStateName } from "../common/entity/compute_state_name";
 import { HaDurationData } from "../components/ha-duration-input";
-import { HomeAssistant } from "../types";
+import { HomeAssistant, ServiceCallResponse } from "../types";
 
 export interface RecorderInfo {
   backlog: number | null;
@@ -128,6 +128,12 @@ export const getRecorderInfo = (conn: Connection) =>
   conn.sendMessagePromise<RecorderInfo>({
     type: "recorder/info",
   });
+
+export const purgeEntity = (
+  hass: HomeAssistant,
+  entity_id: string
+): Promise<ServiceCallResponse> =>
+  hass.callService("recorder", "purge_entities", { entity_id: entity_id });
 
 export const getStatisticIds = (
   hass: HomeAssistant,

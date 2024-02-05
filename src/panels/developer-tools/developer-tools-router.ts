@@ -36,6 +36,10 @@ class DeveloperToolsRouter extends HassRouterPage {
         tag: "developer-tools-template",
         load: () => import("./template/developer-tools-template"),
       },
+      recorder: {
+        tag: "developer-tools-recorder",
+        load: () => import("./recorder/developer-tools-recorder"),
+      },
       statistics: {
         tag: "developer-tools-statistics",
         load: () => import("./statistics/developer-tools-statistics"),

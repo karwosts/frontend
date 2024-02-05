@@ -6223,6 +6223,18 @@
             "entity": "Entity",
             "domain": "Domain"
           },
+          "recorder": {
+            "title": "Recorder",
+            "data_table": {
+              "name": "Name",
+              "entity_id": "Entity ID",
+              "statistics_unit": "Statistics unit",
+              "records": "Records",
+              "purge": "Purge Records",
+              "loading": "Loading...",
+              "confirm_purge": "Are you sure you want to delete all history records for {entity}?"
+            }
+          },
           "statistics": {
             "title": "Statistics",
             "entity": "Entity",
