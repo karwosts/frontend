@@ -143,12 +143,26 @@ export const computeCards = (
       const cardConfig: ThermostatCardConfig = {
         type: "thermostat",
         entity: entityId,
+        features:
+          (states[entityId]?.attributes?.hvac_modes?.length ?? 0) > 1
+            ? [
+                {
+                  type: "climate-hvac-modes",
+                  hvac_modes: states[entityId]?.attributes?.hvac_modes,
+                },
+              ]
+            : undefined,
       };
       cards.push(cardConfig);
     } else if (domain === "humidifier") {
       const cardConfig: HumidifierCardConfig = {
         type: "humidifier",
         entity: entityId,
+        features: [
+          {
+            type: "humidifier-toggle",
+          },
+        ],
       };
       cards.push(cardConfig);
     } else if (domain === "media_player") {

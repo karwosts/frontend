@@ -1,7 +1,6 @@
 import { mdiMinus, mdiPlus, mdiWaterPercent } from "@mdi/js";
 import { CSSResultGroup, LitElement, PropertyValues, html } from "lit";
 import { customElement, property, state } from "lit/decorators";
-import { classMap } from "lit/directives/class-map";
 import { styleMap } from "lit/directives/style-map";
 import { stateActive } from "../../common/entity/state_active";
 import { domainStateColorProperties } from "../../common/entity/state_color";
@@ -28,7 +27,10 @@ export class HaStateControlClimateHumidity extends LitElement {
   @property({ attribute: false }) public stateObj!: ClimateEntity;
 
   @property({ attribute: "show-current", type: Boolean })
-  public showCurrent?: boolean;
+  public showCurrent = false;
+
+  @property({ type: Boolean, attribute: "prevent-interaction-on-scroll" })
+  public preventInteractionOnScroll = false;
 
   @state() private _targetHumidity?: number;
 
@@ -92,6 +94,12 @@ export class HaStateControlClimateHumidity extends LitElement {
         <p class="label disabled">
           ${this.hass.formatEntityState(this.stateObj, UNAVAILABLE)}
         </p>
+      `;
+    }
+
+    if (!this._targetHumidity) {
+      return html`
+        <p class="label">${this.hass.formatEntityState(this.stateObj)}</p>
       `;
     }
 
@@ -176,8 +184,8 @@ export class HaStateControlClimateHumidity extends LitElement {
     const currentHumidity = this.stateObj.attributes.current_humidity;
 
     const containerSizeClass = this._sizeController.value
-      ? { [this._sizeController.value]: true }
-      : {};
+      ? ` ${this._sizeController.value}`
+      : "";
 
     if (
       supportsTargetHumidity &&
@@ -186,12 +194,13 @@ export class HaStateControlClimateHumidity extends LitElement {
     ) {
       return html`
         <div
-          class="container${classMap(containerSizeClass)}"
+          class="container${containerSizeClass}"
           style=${styleMap({
             "--state-color": stateColor,
           })}
         >
           <ha-control-circular-slider
+            .preventInteractionOnScroll=${this.preventInteractionOnScroll}
             .inactive=${!active}
             .value=${this._targetHumidity}
             .min=${this._min}
@@ -214,8 +223,9 @@ export class HaStateControlClimateHumidity extends LitElement {
     }
 
     return html`
-      <div class="container${classMap(containerSizeClass)}">
+      <div class="container${containerSizeClass}">
         <ha-control-circular-slider
+          .preventInteractionOnScroll=${this.preventInteractionOnScroll}
           .current=${this.stateObj.attributes.current_humidity}
           .min=${this._min}
           .max=${this._max}

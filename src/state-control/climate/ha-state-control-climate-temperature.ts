@@ -1,5 +1,12 @@
-import { mdiMinus, mdiPlus, mdiThermometer } from "@mdi/js";
-import { CSSResultGroup, LitElement, PropertyValues, css, html } from "lit";
+import { mdiMinus, mdiPlus, mdiThermometer, mdiThermostat } from "@mdi/js";
+import {
+  CSSResultGroup,
+  LitElement,
+  PropertyValues,
+  css,
+  html,
+  nothing,
+} from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import { styleMap } from "lit/directives/style-map";
@@ -8,6 +15,8 @@ import { stateActive } from "../../common/entity/state_active";
 import { stateColorCss } from "../../common/entity/state_color";
 import { supportsFeature } from "../../common/entity/supports-feature";
 import { clamp } from "../../common/number/clamp";
+import { formatNumber } from "../../common/number/format_number";
+import { blankBeforeUnit } from "../../common/translations/blank_before_unit";
 import { debounce } from "../../common/util/debounce";
 import "../../components/ha-big-number";
 import "../../components/ha-control-circular-slider";
@@ -45,8 +54,14 @@ export class HaStateControlClimateTemperature extends LitElement {
 
   @property({ attribute: false }) public stateObj!: ClimateEntity;
 
-  @property({ attribute: "show-current", type: Boolean })
-  public showCurrent?: boolean;
+  @property({ attribute: "show-secondary", type: Boolean })
+  public showSecondary = false;
+
+  @property({ attribute: "use-current-as-primary", type: Boolean })
+  public showCurrentAsPrimary = false;
+
+  @property({ type: Boolean, attribute: "prevent-interaction-on-scroll" })
+  public preventInteractionOnScroll = false;
 
   @state() private _targetTemperature: Partial<Record<Target, number>> = {};
 
@@ -160,33 +175,22 @@ export class HaStateControlClimateTemperature extends LitElement {
       `;
     }
 
-    if (
-      !supportsFeature(
-        this.stateObj,
-        ClimateEntityFeature.TARGET_TEMPERATURE
-      ) &&
-      !supportsFeature(
-        this.stateObj,
-        ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-      )
-    ) {
-      return html`
-        <p class="label">${this.hass.formatEntityState(this.stateObj)}</p>
-      `;
-    }
-
     const action = this.stateObj.attributes.hvac_action;
 
-    const actionLabel = this.hass.formatEntityAttributeValue(
-      this.stateObj,
-      "hvac_action"
-    );
+    const isTemperatureDisplayed =
+      (this.stateObj.attributes.current_temperature != null &&
+        this.showCurrentAsPrimary) ||
+      ((this._supportsTargetTemperature ||
+        this._supportsTargetTemperatureRange) &&
+        !this.showCurrentAsPrimary);
 
     return html`
       <p class="label">
-        ${action && action !== "off" && action !== "idle"
-          ? actionLabel
-          : this.hass.localize("ui.card.climate.target")}
+        ${action && action !== "off"
+          ? this.hass.formatEntityAttributeValue(this.stateObj, "hvac_action")
+          : isTemperatureDisplayed
+            ? this.hass.formatEntityState(this.stateObj)
+            : nothing}
       </p>
     `;
   }
@@ -228,52 +232,191 @@ export class HaStateControlClimateTemperature extends LitElement {
     `;
   }
 
-  private _renderTargetTemperature(temperature: number) {
+  private _renderTarget(
+    temperature: number,
+    style: "normal" | "big",
+    hideUnit?: boolean
+  ) {
     const digits = this._step.toString().split(".")?.[1]?.length ?? 0;
     const formatOptions: Intl.NumberFormatOptions = {
       maximumFractionDigits: digits,
       minimumFractionDigits: digits,
     };
-    return html`
-      <ha-big-number
-        .value=${temperature}
-        .unit=${this.hass.config.unit_system.temperature}
-        .hass=${this.hass}
-        .formatOptions=${formatOptions}
-      ></ha-big-number>
-    `;
+
+    const unit = hideUnit ? "" : this.hass.config.unit_system.temperature;
+
+    if (style === "big") {
+      return html`
+        <ha-big-number
+          .value=${temperature}
+          .unit=${unit}
+          .hass=${this.hass}
+          .formatOptions=${formatOptions}
+        ></ha-big-number>
+      `;
+    }
+
+    const formatted = formatNumber(
+      temperature,
+      this.hass.locale,
+      formatOptions
+    );
+    return html`${formatted}${blankBeforeUnit(unit, this.hass.locale)}${unit}`;
   }
 
-  private _renderCurrentTemperature(temperature?: number) {
-    if (!this.showCurrent || temperature == null) {
-      return html`<p class="label">&nbsp;</p>`;
+  private _renderCurrent(temperature: number, style: "normal" | "big") {
+    const formatOptions: Intl.NumberFormatOptions = {
+      maximumFractionDigits: 1,
+    };
+    if (style === "big") {
+      return html`
+        <ha-big-number
+          .value=${temperature}
+          .unit=${this.hass.config.unit_system.temperature}
+          .hass=${this.hass}
+          .formatOptions=${formatOptions}
+        ></ha-big-number>
+      `;
     }
 
     return html`
-      <p class="label current">
-        <ha-svg-icon .path=${mdiThermometer}></ha-svg-icon>
-        <span>
-          ${this.hass.formatEntityAttributeValue(
-            this.stateObj,
-            "current_temperature",
-            temperature
-          )}
-        </span>
-      </p>
+      ${this.hass.formatEntityAttributeValue(
+        this.stateObj,
+        "current_temperature",
+        temperature
+      )}
     `;
   }
 
+  private _renderPrimary() {
+    const currentTemperature = this.stateObj.attributes.current_temperature;
+
+    if (currentTemperature != null && this.showCurrentAsPrimary) {
+      return this._renderCurrent(currentTemperature, "big");
+    }
+
+    if (this._supportsTargetTemperature && !this.showCurrentAsPrimary) {
+      return this._renderTarget(this._targetTemperature.value!, "big");
+    }
+
+    if (this._supportsTargetTemperatureRange && !this.showCurrentAsPrimary) {
+      return html`
+        <div class="dual">
+          <button
+            @click=${this._handleSelectTemp}
+            .target=${"low"}
+            class="target-button ${classMap({
+              selected: this._selectTargetTemperature === "low",
+            })}"
+          >
+            ${this._renderTarget(this._targetTemperature.low!, "big")}
+          </button>
+          <button
+            @click=${this._handleSelectTemp}
+            .target=${"high"}
+            class="target-button ${classMap({
+              selected: this._selectTargetTemperature === "high",
+            })}"
+          >
+            ${this._renderTarget(this._targetTemperature.high!, "big")}
+          </button>
+        </div>
+      `;
+    }
+
+    if (this.stateObj.state !== UNAVAILABLE) {
+      return html`
+        <p class="primary-state">
+          ${this.hass.formatEntityState(this.stateObj)}
+        </p>
+      `;
+    }
+
+    return nothing;
+  }
+
+  private _renderSecondary() {
+    if (!this.showSecondary) {
+      return html`<p class="label secondary"></p>`;
+    }
+
+    const currentTemperature = this.stateObj.attributes.current_temperature;
+
+    if (currentTemperature && !this.showCurrentAsPrimary) {
+      return html`
+        <p class="label secondary">
+          <ha-svg-icon .path=${mdiThermometer}></ha-svg-icon>
+          ${this._renderCurrent(currentTemperature, "normal")}
+        </p>
+      `;
+    }
+
+    if (this._supportsTargetTemperature && this.showCurrentAsPrimary) {
+      return html`
+        <p class="label secondary">
+          <ha-svg-icon .path=${mdiThermostat}></ha-svg-icon>
+          ${this._renderTarget(this._targetTemperature.value!, "normal")}
+        </p>
+      `;
+    }
+
+    if (this._supportsTargetTemperatureRange && this.showCurrentAsPrimary) {
+      return html`
+        <p class="label secondary">
+          <ha-svg-icon class="target-icon" .path=${mdiThermostat}></ha-svg-icon>
+          <button
+            @click=${this._handleSelectTemp}
+            .target=${"low"}
+            class="target-button ${classMap({
+              selected: this._selectTargetTemperature === "low",
+            })}"
+          >
+            ${this._renderTarget(this._targetTemperature.low!, "normal", true)}
+          </button>
+          <span>⸱</span>
+          <button
+            @click=${this._handleSelectTemp}
+            .target=${"high"}
+            class="target-button ${classMap({
+              selected: this._selectTargetTemperature === "high",
+            })}"
+          >
+            ${this._renderTarget(this._targetTemperature.high!, "normal", true)}
+          </button>
+        </p>
+      `;
+    }
+
+    return html`<p class="label secondary"></p>`;
+  }
+
+  private _renderInfo() {
+    return html`
+      <div class="info">
+        ${this._renderLabel()}${this._renderPrimary()}${this._renderSecondary()}
+      </div>
+    `;
+  }
+
+  get _supportsTargetTemperature() {
+    return (
+      supportsFeature(this.stateObj, ClimateEntityFeature.TARGET_TEMPERATURE) &&
+      this._targetTemperature.value != null
+    );
+  }
+
+  get _supportsTargetTemperatureRange() {
+    return (
+      supportsFeature(
+        this.stateObj,
+        ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+      ) &&
+      this._targetTemperature.low != null &&
+      this._targetTemperature.high != null
+    );
+  }
+
   protected render() {
-    const supportsTargetTemperature = supportsFeature(
-      this.stateObj,
-      ClimateEntityFeature.TARGET_TEMPERATURE
-    );
-
-    const supportsTargetTemperatureRange = supportsFeature(
-      this.stateObj,
-      ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-    );
-
     const mode = this.stateObj.state;
     const action = this.stateObj.attributes.hvac_action;
     const active = stateActive(this.stateObj);
@@ -291,12 +434,11 @@ export class HaStateControlClimateTemperature extends LitElement {
     }
 
     const containerSizeClass = this._sizeController.value
-      ? { [this._sizeController.value]: true }
-      : {};
+      ? ` ${this._sizeController.value}`
+      : "";
 
     if (
-      supportsTargetTemperature &&
-      this._targetTemperature.value != null &&
+      this._supportsTargetTemperature &&
       this.stateObj.state !== UNAVAILABLE
     ) {
       const heatCoolModes = this.stateObj.attributes.hvac_modes.filter((m) =>
@@ -311,13 +453,14 @@ export class HaStateControlClimateTemperature extends LitElement {
 
       return html`
         <div
-          class="container${classMap(containerSizeClass)}"
+          class="container${containerSizeClass}"
           style=${styleMap({
             "--state-color": stateColor,
             "--action-color": actionColor,
           })}
         >
           <ha-control-circular-slider
+            .preventInteractionOnScroll=${this.preventInteractionOnScroll}
             .inactive=${!active}
             .mode=${sliderMode}
             .value=${this._targetTemperature.value}
@@ -329,27 +472,18 @@ export class HaStateControlClimateTemperature extends LitElement {
             @value-changing=${this._valueChanging}
           >
           </ha-control-circular-slider>
-          <div class="info">
-            ${this._renderLabel()}
-            ${this._renderTargetTemperature(this._targetTemperature.value)}
-            ${this._renderCurrentTemperature(
-              this.stateObj.attributes.current_temperature
-            )}
-          </div>
-          ${this._renderTemperatureButtons("value")}
+          ${this._renderInfo()} ${this._renderTemperatureButtons("value")}
         </div>
       `;
     }
 
     if (
-      supportsTargetTemperatureRange &&
-      this._targetTemperature.low != null &&
-      this._targetTemperature.high != null &&
+      this._supportsTargetTemperatureRange &&
       this.stateObj.state !== UNAVAILABLE
     ) {
       return html`
         <div
-          class="container${classMap(containerSizeClass)}"
+          class="container${containerSizeClass}"
           style=${styleMap({
             "--low-color": lowColor,
             "--high-color": highColor,
@@ -357,6 +491,7 @@ export class HaStateControlClimateTemperature extends LitElement {
           })}
         >
           <ha-control-circular-slider
+            .preventInteractionOnScroll=${this.preventInteractionOnScroll}
             .inactive=${!active}
             dual
             .low=${this._targetTemperature.low}
@@ -371,32 +506,7 @@ export class HaStateControlClimateTemperature extends LitElement {
             @high-changing=${this._valueChanging}
           >
           </ha-control-circular-slider>
-          <div class="info">
-            ${this._renderLabel()}
-            <div class="dual">
-              <button
-                @click=${this._handleSelectTemp}
-                .target=${"low"}
-                class=${classMap({
-                  selected: this._selectTargetTemperature === "low",
-                })}
-              >
-                ${this._renderTargetTemperature(this._targetTemperature.low)}
-              </button>
-              <button
-                @click=${this._handleSelectTemp}
-                .target=${"high"}
-                class=${classMap({
-                  selected: this._selectTargetTemperature === "high",
-                })}
-              >
-                ${this._renderTargetTemperature(this._targetTemperature.high)}
-              </button>
-            </div>
-            ${this._renderCurrentTemperature(
-              this.stateObj.attributes.current_temperature
-            )}
-          </div>
+          ${this._renderInfo()}
           ${this._renderTemperatureButtons(this._selectTargetTemperature, true)}
         </div>
       `;
@@ -404,14 +514,14 @@ export class HaStateControlClimateTemperature extends LitElement {
 
     return html`
       <div
-        class="container${classMap({
-          [this._sizeController.value ?? ""]: true,
-        })}"
+        class="container${containerSizeClass}"
         style=${styleMap({
           "--state-color": stateColor,
+          "--action-color": actionColor,
         })}
       >
         <ha-control-circular-slider
+          .preventInteractionOnScroll=${this.preventInteractionOnScroll}
           mode="full"
           .current=${this.stateObj.attributes.current_temperature}
           .min=${this._min}
@@ -421,12 +531,7 @@ export class HaStateControlClimateTemperature extends LitElement {
           .disabled=${!active}
         >
         </ha-control-circular-slider>
-        <div class="info">
-          ${this._renderLabel()}
-          ${this._renderCurrentTemperature(
-            this.stateObj.attributes.current_temperature
-          )}
-        </div>
+        ${this._renderInfo()}
       </div>
     `;
   }
@@ -441,24 +546,26 @@ export class HaStateControlClimateTemperature extends LitElement {
           flex-direction: row;
           gap: 24px;
         }
-        .dual button {
+        .target-button {
           outline: none;
           background: none;
           color: inherit;
           font-family: inherit;
+          font-size: inherit;
+          font-weight: inherit;
           -webkit-tap-highlight-color: transparent;
           border: none;
-          opacity: 0.5;
+          opacity: 0.7;
           padding: 0;
           transition:
             opacity 180ms ease-in-out,
             transform 180ms ease-in-out;
           cursor: pointer;
         }
-        .dual button:focus-visible {
+        .target-button:focus-visible {
           transform: scale(1.1);
         }
-        .dual button.selected {
+        .target-button.selected {
           opacity: 1;
         }
         .container.md .dual {
@@ -467,6 +574,12 @@ export class HaStateControlClimateTemperature extends LitElement {
         .container.sm .dual,
         .container.xs .dual {
           gap: 8px;
+        }
+        .container.sm .target-icon {
+          display: none;
+        }
+        .secondary {
+          direction: ltr;
         }
         ha-control-circular-slider {
           --control-circular-slider-low-color: var(
