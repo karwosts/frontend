@@ -35,6 +35,7 @@ import { loadLovelaceResources } from "../../../../src/panels/lovelace/common/lo
 import { HassElement } from "../../../../src/state/hass-element";
 import { castContext } from "../cast_context";
 import "./hc-launch-screen";
+import { getPanelTitleFromUrlPath } from "../../../../src/data/panel";
 
 const DEFAULT_CONFIG: LovelaceDashboardStrategyConfig = {
   strategy: {
@@ -51,9 +52,9 @@ export class HcMain extends HassElement {
 
   @state() private _lovelacePath: string | number | null = null;
 
-  @state() private _error?: string;
-
   @state() private _urlPath?: string | null;
+
+  @state() private _error?: string;
 
   private _hassUUID?: string;
 
@@ -81,7 +82,7 @@ export class HcMain extends HassElement {
 
     if (
       !this._lovelaceConfig ||
-      this._lovelacePath === null ||
+      this._urlPath === undefined ||
       // Guard against part of HA not being loaded yet.
       !this.hass ||
       !this.hass.states ||
@@ -99,8 +100,8 @@ export class HcMain extends HassElement {
       <hc-lovelace
         .hass=${this.hass}
         .lovelaceConfig=${this._lovelaceConfig}
-        .viewPath=${this._lovelacePath}
         .urlPath=${this._urlPath}
+        .viewPath=${this._lovelacePath}
         @config-refresh=${this._generateDefaultLovelaceConfig}
       ></hc-lovelace>
     `;
@@ -226,9 +227,9 @@ export class HcMain extends HassElement {
     this.initializeHass(auth, connection);
     if (this._hassUUID !== msg.hassUUID) {
       this._hassUUID = msg.hassUUID;
-      this._lovelacePath = null;
-      this._urlPath = undefined;
       this._lovelaceConfig = undefined;
+      this._urlPath = undefined;
+      this._lovelacePath = null;
       if (this._unsubLovelace) {
         this._unsubLovelace();
         this._unsubLovelace = undefined;
@@ -270,7 +271,7 @@ export class HcMain extends HassElement {
     }
 
     this._error = undefined;
-    if (msg.urlPath === "lovelace") {
+    if (msg.urlPath === "lovelace" || msg.urlPath === undefined) {
       msg.urlPath = null;
     }
     this._lovelacePath = msg.viewPath;
@@ -285,7 +286,7 @@ export class HcMain extends HassElement {
         ],
       };
       this._urlPath = "energy";
-      this._lovelacePath = 0;
+      this._lovelacePath = null;
       this._sendStatus();
       return;
     }
@@ -359,7 +360,11 @@ export class HcMain extends HassElement {
   }
 
   private _handleNewLovelaceConfig(lovelaceConfig: LovelaceConfig) {
-    castContext.setApplicationState(lovelaceConfig.title || "");
+    const title = getPanelTitleFromUrlPath(
+      this.hass!,
+      this._urlPath || "lovelace"
+    );
+    castContext.setApplicationState(title || "");
     this._lovelaceConfig = lovelaceConfig;
   }
 

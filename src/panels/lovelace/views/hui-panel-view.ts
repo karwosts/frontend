@@ -14,7 +14,7 @@ import { computeRTL } from "../../../common/util/compute_rtl";
 import type { LovelaceViewElement } from "../../../data/lovelace";
 import type { LovelaceViewConfig } from "../../../data/lovelace/config/view";
 import type { HomeAssistant } from "../../../types";
-import { HuiErrorCard } from "../cards/hui-error-card";
+import { HuiCard } from "../cards/hui-card";
 import { HuiCardOptions } from "../components/hui-card-options";
 import { HuiWarning } from "../components/hui-warning";
 import type { Lovelace, LovelaceCard } from "../types";
@@ -30,9 +30,7 @@ export class PanelView extends LitElement implements LovelaceViewElement {
 
   @property({ type: Boolean }) public isStrategy = false;
 
-  @property({ attribute: false }) public cards: Array<
-    LovelaceCard | HuiErrorCard
-  > = [];
+  @property({ attribute: false }) public cards: HuiCard[] = [];
 
   @state() private _card?: LovelaceCard | HuiWarning | HuiCardOptions;
 
@@ -130,6 +128,15 @@ export class PanelView extends LitElement implements LovelaceViewElement {
       :host {
         display: block;
         height: 100%;
+        --restore-card-border-radius: var(--ha-card-border-radius, 12px);
+        --restore-card-border-width: var(--ha-card-border-width, 1px);
+        --restore-card-box-shadow: var(--ha-card-box-shadow, none);
+      }
+
+      * {
+        --ha-card-border-radius: 0;
+        --ha-card-border-width: 0;
+        --ha-card-box-shadow: none;
       }
 
       ha-fab {

@@ -2,6 +2,7 @@ import { css, CSSResultGroup, html, LitElement, TemplateResult } from "lit";
 import { customElement, property, query } from "lit/decorators";
 import { fireEvent } from "../../../../src/common/dom/fire_event";
 import { LovelaceConfig } from "../../../../src/data/lovelace/config/types";
+import { getPanelTitleFromUrlPath } from "../../../../src/data/panel";
 import { Lovelace } from "../../../../src/panels/lovelace/types";
 import "../../../../src/panels/lovelace/views/hui-view";
 import { HomeAssistant } from "../../../../src/types";
@@ -17,7 +18,7 @@ class HcLovelace extends LitElement {
   @property({ attribute: false })
   public lovelaceConfig!: LovelaceConfig;
 
-  @property() public viewPath?: string | number;
+  @property() public viewPath?: string | number | null;
 
   @property() public urlPath: string | null = null;
 
@@ -61,7 +62,12 @@ class HcLovelace extends LitElement {
       const index = this._viewIndex;
 
       if (index !== undefined) {
-        const dashboardTitle = this.lovelaceConfig.title || this.urlPath;
+        const title = getPanelTitleFromUrlPath(
+          this.hass,
+          this.urlPath || "lovelace"
+        );
+
+        const dashboardTitle = title || this.urlPath;
 
         const viewTitle =
           this.lovelaceConfig.views[index].title ||
@@ -80,10 +86,17 @@ class HcLovelace extends LitElement {
           this.lovelaceConfig.views[index].background ||
           this.lovelaceConfig.background;
 
-        if (configBackground) {
+        const backgroundStyle =
+          typeof configBackground === "string"
+            ? configBackground
+            : configBackground?.image
+              ? `center / cover no-repeat url('${configBackground.image}')`
+              : undefined;
+
+        if (backgroundStyle) {
           this._huiView!.style.setProperty(
             "--lovelace-background",
-            configBackground
+            backgroundStyle
           );
         } else {
           this._huiView!.style.removeProperty("--lovelace-background");
@@ -93,6 +106,9 @@ class HcLovelace extends LitElement {
   }
 
   private get _viewIndex() {
+    if (this.viewPath === null) {
+      return 0;
+    }
     const selectedView = this.viewPath;
     const selectedViewInt = parseInt(selectedView as string, 10);
     for (let i = 0; i < this.lovelaceConfig.views.length; i++) {

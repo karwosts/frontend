@@ -35,11 +35,24 @@ interface EMOutgoingMessageConfigGet extends EMMessage {
   type: "config/get";
 }
 
-interface EMOutgoingMessageScanQRCode extends EMMessage {
-  type: "qr_code/scan";
-  title: string;
-  description: string;
-  alternative_option_label?: string;
+interface EMOutgoingMessageBarCodeScan extends EMMessage {
+  type: "bar_code/scan";
+  payload: {
+    title: string;
+    description: string;
+    alternative_option_label?: string;
+  };
+}
+
+interface EMOutgoingMessageBarCodeClose extends EMMessage {
+  type: "bar_code/close";
+}
+
+interface EMOutgoingMessageBarCodeNotify extends EMMessage {
+  type: "bar_code/notify";
+  payload: {
+    message: string;
+  };
 }
 
 interface EMOutgoingMessageMatterCommission extends EMMessage {
@@ -54,13 +67,6 @@ type EMOutgoingMessageWithAnswer = {
   "config/get": {
     request: EMOutgoingMessageConfigGet;
     response: ExternalConfig;
-  };
-  "qr_code/scan": {
-    request: EMOutgoingMessageScanQRCode;
-    response:
-      | EMIncomingMessageQRCodeResponseCanceled
-      | EMIncomingMessageQRCodeResponseAlternativeOptions
-      | EMIncomingMessageQRCodeResponseScanResult;
   };
 };
 
@@ -123,21 +129,34 @@ interface EMOutgoingMessageAssistShow extends EMMessage {
   };
 }
 
+interface EMOutgoingMessageThreadStoreInPlatformKeychain extends EMMessage {
+  type: "thread/store_in_platform_keychain";
+  payload: {
+    mac_extended_address: string;
+    border_agent_id: string | null;
+    active_operational_dataset: string;
+  };
+}
+
 type EMOutgoingMessageWithoutAnswer =
-  | EMOutgoingMessageHaptic
-  | EMOutgoingMessageConnectionStatus
+  | EMMessageResultError
+  | EMMessageResultSuccess
   | EMOutgoingMessageAppConfiguration
-  | EMOutgoingMessageTagWrite
-  | EMOutgoingMessageSidebarShow
   | EMOutgoingMessageAssistShow
+  | EMOutgoingMessageBarCodeClose
+  | EMOutgoingMessageBarCodeNotify
+  | EMOutgoingMessageBarCodeScan
+  | EMOutgoingMessageConnectionStatus
   | EMOutgoingMessageExoplayerPlayHLS
   | EMOutgoingMessageExoplayerResize
   | EMOutgoingMessageExoplayerStop
-  | EMOutgoingMessageThemeUpdate
-  | EMMessageResultSuccess
-  | EMMessageResultError
+  | EMOutgoingMessageHaptic
+  | EMOutgoingMessageImportThreadCredentials
   | EMOutgoingMessageMatterCommission
-  | EMOutgoingMessageImportThreadCredentials;
+  | EMOutgoingMessageSidebarShow
+  | EMOutgoingMessageTagWrite
+  | EMOutgoingMessageThemeUpdate
+  | EMOutgoingMessageThreadStoreInPlatformKeychain;
 
 interface EMIncomingMessageRestart {
   id: number;
@@ -172,17 +191,39 @@ interface EMIncomingMessageShowAutomationEditor {
   };
 }
 
-export interface EMIncomingMessageQRCodeResponseCanceled {
-  action: "canceled";
+export interface EMIncomingMessageBarCodeScanResult {
+  id: number;
+  type: "command";
+  command: "bar_code/scan_result";
+  payload: {
+    // A string decoded from the barcode data.
+    rawValue: string;
+    // https://developer.mozilla.org/en-US/docs/Web/API/Barcode_Detection_API#supported_barcode_formats
+    format:
+      | "aztec"
+      | "code_128"
+      | "code_39"
+      | "code_93"
+      | "codabar"
+      | "data_matrix"
+      | "ean_13"
+      | "ean_8"
+      | "itf"
+      | "pdf417"
+      | "qr_code"
+      | "upc_a"
+      | "upc_e"
+      | "unknown";
+  };
 }
 
-export interface EMIncomingMessageQRCodeResponseAlternativeOptions {
-  action: "alternative_options";
-}
-
-export interface EMIncomingMessageQRCodeResponseScanResult {
-  action: "scan_result";
-  result: string;
+export interface EMIncomingMessageBarCodeScanAborted {
+  id: number;
+  type: "command";
+  command: "bar_code/aborted";
+  payload: {
+    reason: "canceled" | "alternative_options";
+  };
 }
 
 export type EMIncomingMessageCommands =
@@ -190,7 +231,9 @@ export type EMIncomingMessageCommands =
   | EMIncomingMessageShowNotifications
   | EMIncomingMessageToggleSidebar
   | EMIncomingMessageShowSidebar
-  | EMIncomingMessageShowAutomationEditor;
+  | EMIncomingMessageShowAutomationEditor
+  | EMIncomingMessageBarCodeScanResult
+  | EMIncomingMessageBarCodeScanAborted;
 
 type EMIncomingMessage =
   | EMMessageResultSuccess
@@ -206,8 +249,9 @@ export interface ExternalConfig {
   hasExoPlayer: boolean;
   canCommissionMatter: boolean;
   canImportThreadCredentials: boolean;
+  canTransferThreadCredentialsToKeychain: boolean;
   hasAssist: boolean;
-  hasQRScanner: number;
+  hasBarCodeScanner: number;
 }
 
 export class ExternalMessaging {
