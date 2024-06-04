@@ -171,6 +171,7 @@ export class HaConfigImages extends LitElement {
         }
         .card-header {
           font-size: 16px;
+          line-height: 20px;
           display: flex;
           justify-content: space-between;
           align-items: center;
