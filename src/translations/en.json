@@ -4374,6 +4374,16 @@
         "entities": {
           "caption": "Entities",
           "description": "Manage known entities",
+          "bulk_edit": {
+            "name_find": "Find",
+            "name_replace": "Replace",
+            "name_reset": "Reset",
+            "title": "Bulk edit",
+            "update_names": "Update names",
+            "update_names_preview": "Preview ({renamed} renamed, {unchanged} unchanged)",
+            "old_name": "Old name",
+            "new_name": "New name"
+          },
           "picker": {
             "header": "Entities",
             "introduction": "Home Assistant keeps a registry of every entity it has ever seen that can be uniquely identified. Each of these entities will have an entity ID assigned which will be reserved for just this entity.",

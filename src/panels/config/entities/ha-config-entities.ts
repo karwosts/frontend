@@ -9,6 +9,7 @@ import {
   mdiEye,
   mdiEyeOff,
   mdiMenuDown,
+  mdiPencil,
   mdiPencilOff,
   mdiPlus,
   mdiRestoreAlert,
@@ -98,6 +99,7 @@ import {
   showAlertDialog,
   showConfirmationDialog,
 } from "../../../dialogs/generic/show-dialog-box";
+import { showBulkEntityEditDialog } from "./dialogs/show-bulk-entity-edit-dialog";
 import { showMoreInfoDialog } from "../../../dialogs/more-info/show-ha-more-info-dialog";
 import "../../../layouts/hass-loading-screen";
 import "../../../layouts/hass-tabs-subpage-data-table";
@@ -842,6 +844,13 @@ ${
       : nothing
   }
 
+  <ha-md-menu-item @click=${this._bulkEditSelected}>
+    <ha-svg-icon slot="start" .path=${mdiPencil}></ha-svg-icon>
+    <div slot="headline">
+      ${this.hass.localize("ui.panel.config.entities.bulk_edit.title")}
+    </div>
+  </ha-md-menu-item>
+
   <ha-md-menu-item @click=${this._enableSelected}>
     <ha-svg-icon slot="start" .path=${mdiToggleSwitch}></ha-svg-icon>
     <div slot="headline">
@@ -1117,6 +1126,27 @@ ${
     ev: HASSDomEvent<SelectionChangedEvent>
   ): void {
     this._selected = ev.detail.value;
+  }
+
+  private async _bulkEditSelected() {
+    const helperDomains = [
+      ...new Set(this._selected.map((s) => computeDomain(s))),
+    ].filter((d) => isHelperDomain(d));
+
+    const domainProms = helperDomains.map((d) =>
+      HELPERS_CRUD[d].fetch(this.hass)
+    );
+    const helpersResult = await Promise.all(domainProms);
+    const fetchedHelpers: Record<string, Helper[]> = {};
+    helpersResult.forEach((r, idx) => {
+      fetchedHelpers[helperDomains[idx]] = r;
+    });
+
+    showBulkEntityEditDialog(this, {
+      entityIds: this._selected,
+      entities: this._entities,
+      helpers: fetchedHelpers,
+    });
   }
 
   private async _enableSelected() {
