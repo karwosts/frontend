@@ -87,16 +87,18 @@ export class DialogBulkEntityEdit extends LitElement {
   }
 
   private _schema = memoizeOne(
-    () =>
+    (resetName: boolean) =>
       [
         {
           name: "name_find",
+          disabled: resetName,
           selector: {
             text: {},
           },
         },
         {
           name: "name_replace",
+          disabled: resetName,
           selector: {
             text: {},
           },
@@ -133,7 +135,7 @@ export class DialogBulkEntityEdit extends LitElement {
           </div>
           <ha-form
             .hass=${this.hass}
-            .schema=${this._schema()}
+            .schema=${this._schema(!!this._data.name_reset)}
             .data=${this._data}
             .computeLabel=${this._computeLabel}
             @value-changed=${this._valueChanged}
