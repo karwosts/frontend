@@ -41,7 +41,8 @@
         "terminal.integrated.shell.linux": "/usr/bin/zsh",
         "gitlens.showWelcomeOnInstall": false,
         "gitlens.showWhatsNewAfterUpgrades": false,
-        "workbench.startupEditor": "none"
+        "workbench.startupEditor": "none",
+        "lit-plugin.globalTags": ["simple-tooltip"]
       }
     }
   }
