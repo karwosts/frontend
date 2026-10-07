@@ -28,7 +28,7 @@ import {
 import "../../../layouts/hass-tabs-subpage-data-table";
 import type { HaTabsSubpageDataTable } from "../../../layouts/hass-tabs-subpage-data-table";
 import type { HomeAssistant, Route } from "../../../types";
-import { configSections } from "../ha-panel-config";
+import { configSections } from "../config-sections";
 import { showAddApplicationCredentialDialog } from "./show-dialog-add-application-credential";
 
 @customElement("ha-config-application-credentials")
@@ -36,6 +36,10 @@ export class HaConfigApplicationCredentials extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
 
   @state() public _applicationCredentials: ApplicationCredential[] = [];
+
+  @state() private _loading = true;
+
+  @state() private _loadFailed = false;
 
   @property({ attribute: "is-wide", type: Boolean }) public isWide = false;
 
@@ -154,10 +158,19 @@ export class HaConfigApplicationCredentials extends LitElement {
         back-path="/config"
         .tabs=${configSections.devices}
         .columns=${this._columns(this.hass.localize)}
+        .loading=${this._loading}
         .data=${this._getApplicationCredentials(
           this._applicationCredentials,
           this.hass.localize
         )}
+        .loadError=${
+          this._loadFailed
+            ? this.hass.localize(
+                "ui.panel.config.application_credentials.picker.load_failed"
+              )
+            : undefined
+        }
+        @retry-load=${this._retryFetchApplicationCredentials}
         has-fab
         selectable
         .selected=${this._selected.length}
@@ -171,33 +184,35 @@ export class HaConfigApplicationCredentials extends LitElement {
         @search-changed=${this._handleSearchChange}
       >
         <div class="header-btns" slot="selection-bar">
-          ${!this.narrow
-            ? html`
-                <ha-button
-                  appearance="plain"
-                  size="s"
-                  @click=${this._deleteSelected}
-                  variant="danger"
-                  >${this.hass.localize(
-                    "ui.panel.config.application_credentials.picker.remove_selected.button"
-                  )}</ha-button
-                >
-              `
-            : html`
-                <ha-icon-button
-                  class="warning"
-                  id="remove-btn"
-                  @click=${this._deleteSelected}
-                  .path=${mdiDelete}
-                  .label=${this.hass.localize("ui.common.remove")}
-                ></ha-icon-button>
-                <ha-help-tooltip
-                  .label=${this.hass.localize(
-                    "ui.panel.config.application_credentials.picker.remove_selected.button"
-                  )}
-                >
-                </ha-help-tooltip>
-              `}
+          ${
+            !this.narrow
+              ? html`
+                  <ha-button
+                    appearance="plain"
+                    size="s"
+                    @click=${this._deleteSelected}
+                    variant="danger"
+                    >${this.hass.localize(
+                      "ui.panel.config.application_credentials.picker.remove_selected.button"
+                    )}</ha-button
+                  >
+                `
+              : html`
+                  <ha-icon-button
+                    class="warning"
+                    id="remove-btn"
+                    @click=${this._deleteSelected}
+                    .path=${mdiDelete}
+                    .label=${this.hass.localize("ui.common.remove")}
+                  ></ha-icon-button>
+                  <ha-help-tooltip
+                    .label=${this.hass.localize(
+                      "ui.panel.config.application_credentials.picker.remove_selected.button"
+                    )}
+                  >
+                  </ha-help-tooltip>
+                `
+          }
         </div>
         <ha-button slot="fab" size="l" @click=${this._addApplicationCredential}>
           <ha-svg-icon slot="start" .path=${mdiPlus}></ha-svg-icon>
@@ -276,7 +291,21 @@ export class HaConfigApplicationCredentials extends LitElement {
   }
 
   private async _fetchApplicationCredentials() {
-    this._applicationCredentials = await fetchApplicationCredentials(this.hass);
+    try {
+      this._applicationCredentials = await fetchApplicationCredentials(
+        this.hass
+      );
+      this._loadFailed = false;
+    } catch {
+      this._loadFailed = true;
+    } finally {
+      this._loading = false;
+    }
+  }
+
+  private _retryFetchApplicationCredentials() {
+    this._loading = true;
+    this._fetchApplicationCredentials();
   }
 
   private _addApplicationCredential() {

@@ -48,16 +48,22 @@ class DialogThreadDataset extends LitElement {
       @closed=${this._dialogClosed}
     >
       <div>
-        Network name: ${dataset.network_name}<br />
+        ${
+          dataset.network_name
+            ? html`Network name: ${dataset.network_name}<br />`
+            : nothing
+        }
         Channel: ${dataset.channel}<br />
         Dataset ID: ${dataset.dataset_id}<br />
         PAN ID: ${dataset.pan_id}<br />
         Extended PAN ID: ${dataset.extended_pan_id}<br />
 
-        ${hasOTBR
-          ? html`OTBR URL: ${otbrInfo.url}<br />
-              Active dataset TLVs: ${otbrInfo.active_dataset_tlvs}`
-          : nothing}
+        ${
+          hasOTBR
+            ? html`OTBR URL: ${otbrInfo.url}<br />
+                Active dataset TLVs: ${otbrInfo.active_dataset_tlvs}`
+            : nothing
+        }
       </div>
     </ha-dialog>`;
   }

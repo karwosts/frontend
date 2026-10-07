@@ -2,6 +2,7 @@ import type { PropertyValues } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
+import type { HassEntity } from "home-assistant-js-websocket";
 import { theme2hex } from "../../../common/color/convert-color";
 import { isComponentLoaded } from "../../../common/config/is_component_loaded";
 import { createSearchParam } from "../../../common/url/search-params";
@@ -105,10 +106,22 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
     }
     this._names = {};
     this._entities.forEach((entity) => {
-      const stateObj = this.hass!.states[entity.entity];
-      this._names[entity.entity] = stateObj
-        ? this.hass!.formatEntityName(stateObj, entity.name)
-        : entity.entity;
+      // Leave unset so timeline/line charts use computeHistory's Device ▸ Entity
+      // labels. Only YAML `name` overrides that default.
+      if (entity.name === undefined) {
+        return;
+      }
+      const stateObj =
+        this.hass!.states[entity.entity] ??
+        ({
+          entity_id: entity.entity,
+          state: "unavailable",
+          attributes: {},
+        } as HassEntity);
+      this._names[entity.entity] = this.hass!.formatEntityName(
+        stateObj,
+        entity.name
+      );
     });
   }
 
@@ -200,7 +213,7 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
     start.setHours(start.getHours() - this._hoursToShow - 1);
 
     const statistics = await fetchStatistics(
-      this.hass!,
+      this.hass!.callWS,
       start,
       now,
       this._entityIds,
@@ -280,8 +293,7 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
     }
 
     const oldConfig = changedProps.get("_config") as
-      | HistoryGraphCardConfig
-      | undefined;
+      HistoryGraphCardConfig | undefined;
 
     if (
       changedProps.has("_config") &&
@@ -316,26 +328,29 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
     const columns = this._config.grid_options?.columns ?? 12;
     const narrow = typeof columns === "number" && columns <= 12;
     const hasFixedHeight = typeof this._config.grid_options?.rows === "number";
+    const showNames = this._config.show_names !== false;
 
     return html`
       <ha-card>
-        ${this._config.title
-          ? html`
-              <h1 class="card-header">
-                ${this._config.title}
-                <a
-                  id=${this._historyLinkId}
-                  href=${configUrl}
-                  aria-label=${this.hass.localize("panel.history")}
-                >
-                  <ha-icon-next></ha-icon-next>
-                </a>
-                <ha-tooltip for=${this._historyLinkId} placement="left">
-                  ${this.hass.localize("panel.history")}
-                </ha-tooltip>
-              </h1>
-            `
-          : nothing}
+        ${
+          this._config.title
+            ? html`
+                <h1 class="card-header">
+                  ${this._config.title}
+                  <a
+                    id=${this._historyLinkId}
+                    href=${configUrl}
+                    aria-label=${this.hass.localize("panel.history")}
+                  >
+                    <ha-icon-next></ha-icon-next>
+                  </a>
+                  <ha-tooltip for=${this._historyLinkId} placement="left">
+                    ${this.hass.localize("panel.history")}
+                  </ha-tooltip>
+                </h1>
+              `
+            : nothing
+        }
         <div
           class="content ${classMap({
             "has-header": !!this._config.title,
@@ -343,34 +358,34 @@ export class HuiHistoryGraphCard extends LitElement implements LovelaceCard {
             "has-height": hasFixedHeight,
           })}"
         >
-          ${this._error
-            ? html`
-                <ha-alert alert-type="error">
-                  ${this.hass.localize("ui.components.history_charts.error")}:
-                  ${this._error.message || this._error.code}
-                </ha-alert>
-              `
-            : html`
-                <state-history-charts
-                  .hass=${this.hass}
-                  .isLoadingData=${!this._history}
-                  .historyData=${this._history}
-                  .names=${this._names}
-                  up-to-now
-                  .hoursToShow=${this._hoursToShow}
-                  .showNames=${this._config.show_names !== undefined
-                    ? this._config.show_names
-                    : true}
-                  .logarithmicScale=${this._config.logarithmic_scale || false}
-                  .minYAxis=${this._config.min_y_axis}
-                  .maxYAxis=${this._config.max_y_axis}
-                  .fitYData=${this._config.fit_y_data || false}
-                  .colors=${this._colors}
-                  .height=${hasFixedHeight ? "100%" : undefined}
-                  .narrow=${narrow}
-                  .expandLegend=${this._config.expand_legend}
-                ></state-history-charts>
-              `}
+          ${
+            this._error
+              ? html`
+                  <ha-alert alert-type="error">
+                    ${this.hass.localize("ui.components.history_charts.error")}:
+                    ${this._error.message || this._error.code}
+                  </ha-alert>
+                `
+              : html`
+                  <state-history-charts
+                    .hass=${this.hass}
+                    .isLoadingData=${!this._history}
+                    .historyData=${this._history}
+                    .names=${this._names}
+                    up-to-now
+                    .hoursToShow=${this._hoursToShow}
+                    .showNames=${showNames}
+                    .logarithmicScale=${this._config.logarithmic_scale || false}
+                    .minYAxis=${this._config.min_y_axis}
+                    .maxYAxis=${this._config.max_y_axis}
+                    .fitYData=${this._config.fit_y_data || false}
+                    .colors=${this._colors}
+                    .height=${hasFixedHeight ? "100%" : undefined}
+                    .narrow=${narrow}
+                    .expandLegend=${this._config.expand_legend}
+                  ></state-history-charts>
+                `
+          }
         </div>
       </ha-card>
     `;

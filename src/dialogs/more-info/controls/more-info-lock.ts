@@ -1,16 +1,15 @@
-import { consume } from "@lit/context";
 import { mdiCheck } from "@mdi/js";
 import type { CSSResultGroup } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { styleMap } from "lit/directives/style-map";
+import { consume } from "../../../common/decorators/consume";
 import { consumeLocalize } from "../../../common/decorators/consume-context-entry";
 import { stateColorCss } from "../../../common/entity/state_color";
 import { supportsFeature } from "../../../common/entity/supports-feature";
 import type { LocalizeFunc } from "../../../common/translations/localize";
 import "../../../components/ha-control-button";
 import "../../../components/ha-control-button-group";
-import "../../../components/ha-outlined-icon-button";
 import "../../../components/ha-state-icon";
 import { apiContext } from "../../../data/context";
 import type { LockEntity } from "../../../data/lock";
@@ -128,60 +127,72 @@ class MoreInfoLock extends LitElement {
         .stateObj=${this.stateObj}
       ></ha-more-info-state-header>
       <div class="controls" style=${styleMap(style)}>
-        ${isJammed(this.stateObj)
-          ? html`
-              <div class="status">
-                <span></span>
-                <div class="icon">
-                  <ha-state-icon .stateObj=${this.stateObj}></ha-state-icon>
+        ${
+          isJammed(this.stateObj)
+            ? html`
+                <div class="status">
+                  <span></span>
+                  <div class="icon">
+                    <ha-state-icon .stateObj=${this.stateObj}></ha-state-icon>
+                  </div>
                 </div>
-              </div>
-            `
-          : html`
-              <ha-state-control-lock-toggle
-                @lock-service-called=${this._resetButtonState}
-                .stateObj=${this.stateObj}
-              >
-              </ha-state-control-lock-toggle>
-            `}
-        ${supportsOpen
-          ? html`
-              <div class="buttons">
-                ${this._buttonState === "done"
-                  ? html`
-                      <p class="open-done">
-                        <ha-svg-icon path=${mdiCheck}></ha-svg-icon>
-                        ${this._localize("ui.card.lock.open_door_done")}
-                      </p>
-                    `
-                  : html`
-                      <ha-control-button
-                        .disabled=${!canOpen(this.stateObj)}
-                        class="open-button ${this._buttonState}"
-                        @click=${this._open}
-                      >
-                        ${this._buttonState === "confirm"
-                          ? this._localize("ui.card.lock.open_door_confirm")
-                          : this._localize("ui.card.lock.open_door")}
-                      </ha-control-button>
-                    `}
-              </div>
-            `
-          : nothing}
+              `
+            : html`
+                <ha-state-control-lock-toggle
+                  @lock-service-called=${this._resetButtonState}
+                  .stateObj=${this.stateObj}
+                >
+                </ha-state-control-lock-toggle>
+              `
+        }
+        ${
+          supportsOpen
+            ? html`
+                <div class="buttons">
+                  ${
+                    this._buttonState === "done"
+                      ? html`
+                          <p class="open-done">
+                            <ha-svg-icon path=${mdiCheck}></ha-svg-icon>
+                            ${this._localize("ui.card.lock.open_door_done")}
+                          </p>
+                        `
+                      : html`
+                          <ha-control-button
+                            .disabled=${!canOpen(this.stateObj)}
+                            class="open-button ${this._buttonState}"
+                            @click=${this._open}
+                          >
+                            ${
+                              this._buttonState === "confirm"
+                                ? this._localize(
+                                    "ui.card.lock.open_door_confirm"
+                                  )
+                                : this._localize("ui.card.lock.open_door")
+                            }
+                          </ha-control-button>
+                        `
+                  }
+                </div>
+              `
+            : nothing
+        }
       </div>
       <div>
-        ${isJammed(this.stateObj)
-          ? html`
-              <ha-control-button-group class="jammed">
-                <ha-control-button @click=${this._unlock}>
-                  ${this._localize("ui.card.lock.unlock")}
-                </ha-control-button>
-                <ha-control-button @click=${this._lock}>
-                  ${this._localize("ui.card.lock.lock")}
-                </ha-control-button>
-              </ha-control-button-group>
-            `
-          : nothing}
+        ${
+          isJammed(this.stateObj)
+            ? html`
+                <ha-control-button-group class="jammed">
+                  <ha-control-button @click=${this._unlock}>
+                    ${this._localize("ui.card.lock.unlock")}
+                  </ha-control-button>
+                  <ha-control-button @click=${this._lock}>
+                    ${this._localize("ui.card.lock.lock")}
+                  </ha-control-button>
+                </ha-control-button-group>
+              `
+            : nothing
+        }
       </div>
     `;
   }

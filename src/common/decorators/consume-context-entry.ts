@@ -1,4 +1,4 @@
-import { consume } from "@lit/context";
+import type { Context } from "@lit/context";
 import type { HassEntities, HassEntity } from "home-assistant-js-websocket";
 import type {
   HomeAssistant,
@@ -12,6 +12,7 @@ import {
 import type { EntityRegistryDisplayEntry } from "../../data/entity/entity_registry";
 import type { LocalizeFunc } from "../translations/localize";
 import { ensureArray } from "../array/ensure-array";
+import { consume } from "./consume";
 import { transform } from "./transform";
 
 interface ConsumeEntryConfig {
@@ -49,8 +50,19 @@ export const preserveUnchangedEntityStatesRecord = <
   return previous;
 };
 
+/**
+ * `@consume({ subscribe: true })` without forced host updates — see
+ * {@link consume}. Pair with {@link transform} so an update is scheduled only
+ * when the derived value actually changes.
+ */
+const subscribeContext = <ValueType>(context: Context<unknown, ValueType>) =>
+  consume({ context, subscribe: true }) as (
+    proto: object,
+    propertyKey: string
+  ) => void;
+
 const composeDecorator = <T, V>(
-  context: Parameters<typeof consume>[0]["context"],
+  context: Context<unknown, T>,
   watchKey: string | undefined,
   select: (this: unknown, value: T) => V | undefined
 ) => {
@@ -60,7 +72,7 @@ const composeDecorator = <T, V>(
     },
     watch: watchKey ? [watchKey] : [],
   });
-  const consumeDec = consume<any>({ context, subscribe: true });
+  const consumeDec = subscribeContext<T>(context);
   return (proto: any, propertyKey: string) => {
     transformDec(proto, propertyKey);
     consumeDec(proto, propertyKey);
@@ -124,10 +136,7 @@ export const consumeEntityStates = (config: ConsumeEntryConfig) => {
       },
       watch: watchKey ? [watchKey] : [],
     });
-    const consumeDec = consume<any>({
-      context: statesContext,
-      subscribe: true,
-    });
+    const consumeDec = subscribeContext<HassEntities>(statesContext);
     transformDec(proto as never, propertyKey);
     consumeDec(proto as never, propertyKey);
   };
@@ -151,7 +160,7 @@ export const consumeEntityRegistryEntry = (config: ConsumeEntryConfig) =>
 /**
  * Consumes `internationalizationContext` and narrows it to the `localize`
  * function. No host watching is needed — the decorated property updates
- * whenever the i18n context changes.
+ * whenever `localize` changes.
  */
 export const consumeLocalize = () =>
   composeDecorator<HomeAssistantInternationalization, LocalizeFunc>(

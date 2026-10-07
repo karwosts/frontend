@@ -1,8 +1,9 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import type { CSSResultGroup, PropertyValues, TemplateResult } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
+import { consume } from "../../../../../common/decorators/consume";
 import "../../../../../components/data-table/ha-data-table";
 import type {
   DataTableColumnContainer,
@@ -75,52 +76,51 @@ class ZHADeviceNeighbors extends LitElement {
     }
   );
 
-  private _columns = memoizeOne(
-    (narrow: boolean): DataTableColumnContainer =>
-      narrow
-        ? {
-            name: {
-              title: this.hass.localize("ui.panel.config.zha.neighbors.name"),
-              sortable: true,
-              filterable: true,
-              direction: "asc",
-              flex: 2,
-            },
-            lqi: {
-              title: this.hass.localize("ui.panel.config.zha.neighbors.lqi"),
-              sortable: true,
-              filterable: true,
-              type: "numeric",
-            },
-          }
-        : {
-            name: {
-              title: this.hass.localize("ui.panel.config.zha.neighbors.name"),
-              sortable: true,
-              filterable: true,
-              direction: "asc",
-              flex: 2,
-            },
-            lqi: {
-              title: this.hass.localize("ui.panel.config.zha.neighbors.lqi"),
-              sortable: true,
-              filterable: true,
-              type: "numeric",
-            },
-            relationship: {
-              title: this.hass.localize(
-                "ui.panel.config.zha.neighbors.relationship"
-              ),
-              sortable: true,
-              filterable: true,
-            },
-            depth: {
-              title: this.hass.localize("ui.panel.config.zha.neighbors.depth"),
-              sortable: true,
-              filterable: true,
-              type: "numeric",
-            },
-          }
+  private _columns = memoizeOne((narrow: boolean): DataTableColumnContainer =>
+    narrow
+      ? {
+          name: {
+            title: this.hass.localize("ui.panel.config.zha.neighbors.name"),
+            sortable: true,
+            filterable: true,
+            direction: "asc",
+            flex: 2,
+          },
+          lqi: {
+            title: this.hass.localize("ui.panel.config.zha.neighbors.lqi"),
+            sortable: true,
+            filterable: true,
+            type: "numeric",
+          },
+        }
+      : {
+          name: {
+            title: this.hass.localize("ui.panel.config.zha.neighbors.name"),
+            sortable: true,
+            filterable: true,
+            direction: "asc",
+            flex: 2,
+          },
+          lqi: {
+            title: this.hass.localize("ui.panel.config.zha.neighbors.lqi"),
+            sortable: true,
+            filterable: true,
+            type: "numeric",
+          },
+          relationship: {
+            title: this.hass.localize(
+              "ui.panel.config.zha.neighbors.relationship"
+            ),
+            sortable: true,
+            filterable: true,
+          },
+          depth: {
+            title: this.hass.localize("ui.panel.config.zha.neighbors.depth"),
+            sortable: true,
+            filterable: true,
+            type: "numeric",
+          },
+        }
   );
 
   protected render(): TemplateResult | typeof nothing {

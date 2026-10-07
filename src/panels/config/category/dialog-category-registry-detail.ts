@@ -1,7 +1,8 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import type { CSSResultGroup } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, state } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import "../../../components/ha-alert";
 import "../../../components/ha-button";
 import "../../../components/ha-dialog";
@@ -66,14 +67,18 @@ class DialogCategoryDetail extends DirtyStateProviderMixin<CategoryFormState>()(
     return html`
       <ha-dialog
         open
-        header-title=${entry
-          ? this._i18n.localize("ui.panel.config.category.editor.edit")
-          : this._i18n.localize("ui.panel.config.category.editor.create")}
+        header-title=${
+          entry
+            ? this._i18n.localize("ui.panel.config.category.editor.edit")
+            : this._i18n.localize("ui.panel.config.category.editor.create")
+        }
         .preventScrimClose=${this.isDirtyState}
       >
-        ${this._error
-          ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
-          : ""}
+        ${
+          this._error
+            ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
+            : ""
+        }
         <div class="form">
           <ha-input
             .value=${this._name}
@@ -107,13 +112,17 @@ class DialogCategoryDetail extends DirtyStateProviderMixin<CategoryFormState>()(
           <ha-button
             slot="primaryAction"
             @click=${this._updateEntry}
-            .disabled=${nameInvalid ||
-            !!this._submitting ||
-            (!isCreate && !this.isDirtyState)}
+            .disabled=${
+              nameInvalid ||
+              !!this._submitting ||
+              (!isCreate && !this.isDirtyState)
+            }
           >
-            ${entry
-              ? this._i18n.localize("ui.common.save")
-              : this._i18n.localize("ui.common.add")}
+            ${
+              entry
+                ? this._i18n.localize("ui.common.save")
+                : this._i18n.localize("ui.common.add")
+            }
           </ha-button>
         </ha-dialog-footer>
       </ha-dialog>

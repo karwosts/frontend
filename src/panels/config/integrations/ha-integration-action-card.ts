@@ -6,7 +6,6 @@ import {
   type IntegrationManifest,
 } from "../../../data/integration";
 import type { HomeAssistant } from "../../../types";
-import "./ha-integration-header";
 import "../../../components/ha-card";
 import { brandsUrl } from "../../../util/brands-url";
 import { haStyle } from "../../../resources/styles";
@@ -46,10 +45,12 @@ export class HaIntegrationActionCard extends LitElement {
           />
           <h2>${this.label}</h2>
           <h3>
-            ${this.localizedDomainName &&
-            this.localizedDomainName !== this.domain
-              ? this.localizedDomainName
-              : domainToName(this.hass.localize, this.domain, this.manifest)}
+            ${
+              this.localizedDomainName &&
+              this.localizedDomainName !== this.domain
+                ? this.localizedDomainName
+                : domainToName(this.hass.localize, this.domain, this.manifest)
+            }
           </h3>
         </div>
         <div class="filler"></div>

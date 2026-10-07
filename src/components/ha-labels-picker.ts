@@ -1,4 +1,3 @@
-import { consume } from "@lit/context";
 import { mdiPlaylistPlus } from "@mdi/js";
 import type { HassEntity } from "home-assistant-js-websocket";
 import type { TemplateResult } from "lit";
@@ -6,6 +5,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import { repeat } from "lit/directives/repeat";
 import memoizeOne from "memoize-one";
+import { consume } from "../common/decorators/consume";
 import { fireEvent } from "../common/dom/fire_event";
 import { stringCompare } from "../common/string/compare";
 import { labelsContext } from "../data/context";
@@ -128,41 +128,45 @@ export class HaLabelsPicker extends LitElement {
         @value-changed=${this._labelChanged}
       >
         <ha-chip-set>
-          ${labels?.length
-            ? repeat(
-                labels,
-                (label) => label?.label_id,
-                (label) => {
-                  if (!label) return nothing;
-                  const elementId = "label-" + label.label_id;
-                  return html`
-                    <ha-tooltip
-                      .for=${elementId}
-                      .disabled=${!label.description?.trim()}
-                    >
-                      ${label.description}
-                    </ha-tooltip>
-                    <ha-input-chip
-                      .item=${label}
-                      .id=${elementId}
-                      @remove=${this._removeItem}
-                      @click=${this._openDetail}
-                      .disabled=${this.disabled}
-                      .label=${label.name}
-                      selected
-                      style=${label.style}
-                    >
-                      ${label.icon
-                        ? html`<ha-icon
-                            slot="icon"
-                            .icon=${label.icon}
-                          ></ha-icon>`
-                        : nothing}
-                    </ha-input-chip>
-                  `;
-                }
-              )
-            : nothing}
+          ${
+            labels?.length
+              ? repeat(
+                  labels,
+                  (label) => label?.label_id,
+                  (label) => {
+                    if (!label) return nothing;
+                    const elementId = "label-" + label.label_id;
+                    return html`
+                      <ha-tooltip
+                        .for=${elementId}
+                        .disabled=${!label.description?.trim()}
+                      >
+                        ${label.description}
+                      </ha-tooltip>
+                      <ha-input-chip
+                        .item=${label}
+                        .id=${elementId}
+                        @remove=${this._removeItem}
+                        @click=${this._openDetail}
+                        .disabled=${this.disabled}
+                        .label=${label.name}
+                        selected
+                        style=${label.style}
+                      >
+                        ${
+                          label.icon
+                            ? html`<ha-icon
+                                slot="icon"
+                                .icon=${label.icon}
+                              ></ha-icon>`
+                            : nothing
+                        }
+                      </ha-input-chip>
+                    `;
+                  }
+                )
+              : nothing
+          }
           <ha-button
             id="picker"
             size="s"

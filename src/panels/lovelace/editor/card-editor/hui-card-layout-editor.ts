@@ -12,13 +12,15 @@ import type { HaDropdownSelectEvent } from "../../../../components/ha-dropdown";
 import "../../../../components/ha-dropdown-item";
 import "../../../../components/ha-grid-size-picker";
 import "../../../../components/ha-icon-button";
-import "../../../../components/ha-md-list-item";
-import "../../../../components/ha-slider";
 import "../../../../components/ha-svg-icon";
 import "../../../../components/ha-switch";
 import "../../../../components/ha-yaml-editor";
+import "../../../../components/item/ha-row-item";
 import type { LovelaceCardConfig } from "../../../../data/lovelace/config/card";
-import type { LovelaceSectionConfig } from "../../../../data/lovelace/config/section";
+import {
+  DEFAULT_SECTION_COLUMN_SPAN,
+  type LovelaceSectionConfig,
+} from "../../../../data/lovelace/config/section";
 import { haStyle } from "../../../../resources/styles";
 import type { HomeAssistant } from "../../../../types";
 import type { HuiCard } from "../../cards/hui-card";
@@ -85,20 +87,23 @@ export class HuiCardLayoutEditor extends LitElement {
     const gridOptions = options;
     const gridValue = this._computeCardGridSize(gridOptions);
 
-    const columnSpan = this.sectionConfig.column_span ?? 1;
+    const columnSpan =
+      this.sectionConfig.column_span ?? DEFAULT_SECTION_COLUMN_SPAN;
     const gridTotalColumns = 12 * columnSpan;
 
     return html`
-      ${this._defaultGridOptions &&
-      Object.keys(this._defaultGridOptions).length === 0
-        ? html`
-            <ha-alert alert-type="info">
-              ${this.hass.localize(
-                "ui.panel.lovelace.editor.edit_card.layout.no_grid_support"
-              )}
-            </ha-alert>
-          `
-        : nothing}
+      ${
+        this._defaultGridOptions &&
+        Object.keys(this._defaultGridOptions).length === 0
+          ? html`
+              <ha-alert alert-type="info">
+                ${this.hass.localize(
+                  "ui.panel.lovelace.editor.edit_card.layout.no_grid_support"
+                )}
+              </ha-alert>
+            `
+          : nothing
+      }
       <div class="header">
         <ha-dropdown
           slot="icons"
@@ -120,83 +125,85 @@ export class HuiCardLayoutEditor extends LitElement {
           </ha-dropdown-item>
         </ha-dropdown>
       </div>
-      ${this._yamlMode
-        ? html`
-            <ha-yaml-editor
-              .defaultValue=${configOptions}
-              @value-changed=${this._yamlChanged}
-            ></ha-yaml-editor>
-          `
-        : html`
-            <ha-grid-size-picker
-              style=${styleMap({
-                "max-width": `${(this.sectionConfig.column_span ?? 1) * 250 + 40}px`,
-              })}
-              .columns=${gridTotalColumns}
-              .value=${gridValue}
-              .isDefault=${this._isDefault(configOptions)}
-              @value-changed=${this._gridSizeChanged}
-              .rowMin=${gridOptions.min_rows}
-              .rowMax=${gridOptions.max_rows}
-              .columnMin=${gridOptions.min_columns}
-              .columnMax=${gridOptions.max_columns}
-              .step=${this._preciseMode ? 1 : GRID_COLUMN_MULTIPLIER}
-            ></ha-grid-size-picker>
-            <ha-md-list-item>
-              <span slot="headline"
-                >${this.hass.localize(
-                  "ui.panel.lovelace.editor.edit_card.layout.auto_height"
-                )}</span
-              >
-              <span slot="supporting-text"
-                >${this.hass.localize(
-                  "ui.panel.lovelace.editor.edit_card.layout.auto_height_helper"
-                )}</span
-              >
-              <ha-switch
-                slot="end"
-                @change=${this._autoHeightChanged}
-                .checked=${options.rows === "auto"}
-                name="auto-height"
-              ></ha-switch>
-            </ha-md-list-item>
-            <ha-md-list-item>
-              <span slot="headline"
-                >${this.hass.localize(
-                  "ui.panel.lovelace.editor.edit_card.layout.full_width"
-                )}</span
-              >
-              <span slot="supporting-text"
-                >${this.hass.localize(
-                  "ui.panel.lovelace.editor.edit_card.layout.full_width_helper"
-                )}</span
-              >
-              <ha-switch
-                slot="end"
-                @change=${this._fullWidthChanged}
-                .checked=${options.columns === "full"}
-                name="full-width"
-              ></ha-switch>
-            </ha-md-list-item>
-            <ha-md-list-item>
-              <span slot="headline"
-                >${this.hass.localize(
-                  "ui.panel.lovelace.editor.edit_card.layout.precise_mode"
-                )}</span
-              >
-              <span slot="supporting-text"
-                >${this.hass.localize(
-                  "ui.panel.lovelace.editor.edit_card.layout.precise_mode_helper"
-                )}</span
-              >
-              <ha-switch
-                slot="end"
-                @change=${this._preciseModeChanged}
-                .checked=${this._preciseMode}
-                name="precise-mode"
-              ></ha-switch>
-            </ha-md-list-item>
-          `}
+      ${
+        this._yamlMode
+          ? html`
+              <ha-yaml-editor
+                .defaultValue=${configOptions}
+                @value-changed=${this._yamlChanged}
+              ></ha-yaml-editor>
+            `
+          : html`
+              <ha-grid-size-picker
+                style=${styleMap({
+                  "max-width": `${(this.sectionConfig.column_span ?? DEFAULT_SECTION_COLUMN_SPAN) * 250 + 40}px`,
+                })}
+                .columns=${gridTotalColumns}
+                .value=${gridValue}
+                .isDefault=${this._isDefault(configOptions)}
+                @value-changed=${this._gridSizeChanged}
+                .rowMin=${gridOptions.min_rows}
+                .rowMax=${gridOptions.max_rows}
+                .columnMin=${gridOptions.min_columns}
+                .columnMax=${gridOptions.max_columns}
+                .step=${this._preciseMode ? 1 : GRID_COLUMN_MULTIPLIER}
+              ></ha-grid-size-picker>
+              <ha-row-item>
+                <span slot="headline"
+                  >${this.hass.localize(
+                    "ui.panel.lovelace.editor.edit_card.layout.auto_height"
+                  )}</span
+                >
+                <span slot="supporting-text"
+                  >${this.hass.localize(
+                    "ui.panel.lovelace.editor.edit_card.layout.auto_height_helper"
+                  )}</span
+                >
+                <ha-switch
+                  slot="end"
+                  @change=${this._autoHeightChanged}
+                  .checked=${options.rows === "auto"}
+                  name="auto-height"
+                ></ha-switch>
+              </ha-row-item>
+              <ha-row-item>
+                <span slot="headline"
+                  >${this.hass.localize(
+                    "ui.panel.lovelace.editor.edit_card.layout.full_width"
+                  )}</span
+                >
+                <span slot="supporting-text"
+                  >${this.hass.localize(
+                    "ui.panel.lovelace.editor.edit_card.layout.full_width_helper"
+                  )}</span
+                >
+                <ha-switch
+                  slot="end"
+                  @change=${this._fullWidthChanged}
+                  .checked=${options.columns === "full"}
+                  name="full-width"
+                ></ha-switch>
+              </ha-row-item>
+              <ha-row-item>
+                <span slot="headline"
+                  >${this.hass.localize(
+                    "ui.panel.lovelace.editor.edit_card.layout.precise_mode"
+                  )}</span
+                >
+                <span slot="supporting-text"
+                  >${this.hass.localize(
+                    "ui.panel.lovelace.editor.edit_card.layout.precise_mode_helper"
+                  )}</span
+                >
+                <ha-switch
+                  slot="end"
+                  @change=${this._preciseModeChanged}
+                  .checked=${this._preciseMode}
+                  name="precise-mode"
+                ></ha-switch>
+              </ha-row-item>
+            `
+      }
     `;
   }
 
@@ -298,7 +305,8 @@ export class HuiCardLayoutEditor extends LitElement {
       columns = "full";
     } else if (defaultGridOptions.columns === "full") {
       // Default is full width, so we need to set a specific value
-      const columnSpan = this.sectionConfig.column_span ?? 1;
+      const columnSpan =
+        this.sectionConfig.column_span ?? DEFAULT_SECTION_COLUMN_SPAN;
       const gridTotalColumns = 12 * columnSpan;
       columns = defaultGridOptions.max_columns ?? gridTotalColumns;
     } else {

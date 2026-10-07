@@ -5,7 +5,7 @@ import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
 import { isComponentLoaded } from "../../../common/config/is_component_loaded";
 import { fireEvent } from "../../../common/dom/fire_event";
-import { computeStateName } from "../../../common/entity/compute_state_name";
+import { computeEntityEntryNameList } from "../../../common/entity/compute_entity_name_display";
 import type {
   EntityDomainFilter,
   EntityDomainFilterFunc,
@@ -17,8 +17,8 @@ import {
 import "../../../components/ha-alert";
 import "../../../components/ha-aliases-editor";
 import "../../../components/ha-checkbox";
-import "../../../components/ha-md-list-item";
 import "../../../components/ha-switch";
+import "../../../components/item/ha-row-item";
 import "../../../components/voice-assistant-brand-icon";
 import { fetchCloudAlexaEntity } from "../../../data/alexa";
 import type { CloudStatus, CloudStatusLoggedIn } from "../../../data/cloud";
@@ -179,8 +179,18 @@ export class EntityVoiceSettings extends SubscribeMixin(LitElement) {
 
     const anyExposed = uiExposed || manExposedAlexa || manExposedGoogle;
 
+    const exposedToAlexa =
+      showAssistants.includes("cloud.alexa") &&
+      (alexaManual ? manExposedAlexa : this.exposed["cloud.alexa"]);
+    const exposedToGoogle =
+      showAssistants.includes("cloud.google_assistant") &&
+      (googleManual
+        ? manExposedGoogle
+        : this.exposed["cloud.google_assistant"]);
+    const exposedToAssist = this.exposed.conversation;
+
     return html`
-      <ha-md-list-item>
+      <ha-row-item>
         <h3 slot="headline">
           ${this.hass.localize("ui.dialogs.voice-settings.expose_header")}
         </h3>
@@ -190,127 +200,167 @@ export class EntityVoiceSettings extends SubscribeMixin(LitElement) {
           .assistants=${uiAssistants}
           .checked=${anyExposed}
         ></ha-switch>
-      </ha-md-list-item>
-      ${anyExposed
-        ? showAssistants.map((key) => {
-            const supported = !this._unsupported[key];
+      </ha-row-item>
+      ${
+        anyExposed
+          ? showAssistants.map((key) => {
+              const supported = !this._unsupported[key];
 
-            const exposed =
-              alexaManual && key === "cloud.alexa"
-                ? manExposedAlexa
-                : googleManual && key === "cloud.google_assistant"
-                  ? manExposedGoogle
-                  : this.exposed[key];
+              const exposed =
+                alexaManual && key === "cloud.alexa"
+                  ? manExposedAlexa
+                  : googleManual && key === "cloud.google_assistant"
+                    ? manExposedGoogle
+                    : this.exposed[key];
 
-            const manualConfig =
-              (alexaManual && key === "cloud.alexa") ||
-              (googleManual && key === "cloud.google_assistant");
+              const manualConfig =
+                (alexaManual && key === "cloud.alexa") ||
+                (googleManual && key === "cloud.google_assistant");
 
-            const support2fa =
-              key === "cloud.google_assistant" &&
-              !googleManual &&
-              supported &&
-              this._googleEntity?.might_2fa;
+              const support2fa =
+                key === "cloud.google_assistant" &&
+                !googleManual &&
+                supported &&
+                this._googleEntity?.might_2fa;
 
-            return html`
-              <ha-md-list-item>
-                <voice-assistant-brand-icon
-                  slot="start"
-                  .voiceAssistantId=${key}
-                >
-                </voice-assistant-brand-icon>
-                <span slot="headline">${voiceAssistants[key].name}</span>
-                ${!supported
-                  ? html`<div slot="supporting-text" class="unsupported">
-                      <ha-svg-icon .path=${mdiAlertCircle}></ha-svg-icon>
-                      ${this.hass.localize(
-                        "ui.dialogs.voice-settings.unsupported"
-                      )}
-                    </div>`
-                  : nothing}
-                ${manualConfig
-                  ? html`
-                      <div slot="supporting-text">
-                        ${this.hass.localize(
-                          "ui.dialogs.voice-settings.manual_config"
-                        )}
-                      </div>
-                    `
-                  : nothing}
-                ${support2fa
-                  ? html`
-                      <ha-checkbox
-                        slot="supporting-text"
-                        .checked=${!this._googleEntity!.disable_2fa}
-                        @change=${this._2faChanged}
-                      >
-                        ${this.hass.localize(
-                          "ui.dialogs.voice-settings.ask_pin"
-                        )}
-                      </ha-checkbox>
-                    `
-                  : nothing}
-                <ha-switch
-                  slot="end"
-                  .assistant=${key}
-                  @change=${this._toggleAssistant}
-                  .disabled=${manualConfig || (!exposed && !supported)}
-                  .checked=${exposed}
-                ></ha-switch>
-              </ha-md-list-item>
-            `;
-          })
-        : nothing}
+              return html`
+                <ha-row-item>
+                  <voice-assistant-brand-icon
+                    slot="start"
+                    .voiceAssistantId=${key}
+                  >
+                  </voice-assistant-brand-icon>
+                  <span slot="headline">${voiceAssistants[key].name}</span>
+                  ${
+                    !supported
+                      ? html`<div slot="supporting-text" class="unsupported">
+                          <ha-svg-icon .path=${mdiAlertCircle}></ha-svg-icon>
+                          ${this.hass.localize(
+                            "ui.dialogs.voice-settings.unsupported"
+                          )}
+                        </div>`
+                      : nothing
+                  }
+                  ${
+                    manualConfig
+                      ? html`
+                          <div slot="supporting-text">
+                            ${this.hass.localize(
+                              "ui.dialogs.voice-settings.manual_config"
+                            )}
+                          </div>
+                        `
+                      : nothing
+                  }
+                  ${
+                    support2fa
+                      ? html`
+                          <ha-checkbox
+                            slot="supporting-text"
+                            .checked=${!this._googleEntity!.disable_2fa}
+                            @change=${this._2faChanged}
+                          >
+                            ${this.hass.localize(
+                              "ui.dialogs.voice-settings.ask_pin"
+                            )}
+                          </ha-checkbox>
+                        `
+                      : nothing
+                  }
+                  <ha-switch
+                    slot="end"
+                    .assistant=${key}
+                    @change=${this._toggleAssistant}
+                    .disabled=${manualConfig || (!exposed && !supported)}
+                    .checked=${exposed}
+                  ></ha-switch>
+                </ha-row-item>
+              `;
+            })
+          : nothing
+      }
 
       <h3 class="header">
         ${this.hass.localize("ui.dialogs.voice-settings.aliases_header")}
       </h3>
 
       <p class="description">
-        ${this.hass.localize("ui.dialogs.voice-settings.aliases_description")}
+        ${[
+          this.hass.localize("ui.dialogs.voice-settings.aliases_description"),
+          exposedToAlexa &&
+            this.hass.localize(
+              "ui.dialogs.voice-settings.aliases_description_alexa"
+            ),
+          exposedToGoogle &&
+            this.hass.localize(
+              "ui.dialogs.voice-settings.aliases_description_google"
+            ),
+          exposedToAssist &&
+            (exposedToAlexa || exposedToGoogle) &&
+            this.hass.localize(
+              "ui.dialogs.voice-settings.aliases_description_assist"
+            ),
+        ]
+          .filter(Boolean)
+          .join(" ")}
       </p>
 
-      ${!this.entry
-        ? html`<ha-alert alert-type="warning">
-            ${this.hass.localize(
-              "ui.dialogs.voice-settings.aliases_no_unique_id",
-              {
-                faq_link: html`<a
-                  href=${documentationUrl(this.hass, "/faq/unique_id")}
-                  target="_blank"
-                  rel="noreferrer"
-                  >${this.hass.localize("ui.dialogs.entity_registry.faq")}</a
-                >`,
-              }
-            )}
-          </ha-alert>`
-        : html`
-            <ha-md-list-item>
-              <span slot="headline">
-                ${this.hass.states[this.entityId]
-                  ? computeStateName(this.hass.states[this.entityId])
-                  : this.entityId}
-              </span>
-              <span slot="supporting-text">
-                ${this.hass.localize(
-                  "ui.dialogs.voice-settings.entity_name_alias_description"
-                )}
-              </span>
-              <ha-switch
-                slot="end"
-                .checked=${(this._aliases ?? this.entry.aliases).includes(null)}
-                @change=${this._toggleEntityNameAlias}
-              ></ha-switch>
-            </ha-md-list-item>
-            <ha-aliases-editor
-              .aliases=${(this._aliases ?? this.entry.aliases).filter(
-                (a): a is string => a !== null
+      ${
+        !this.entry
+          ? html`<ha-alert alert-type="warning">
+              ${this.hass.localize(
+                "ui.dialogs.voice-settings.aliases_no_unique_id",
+                {
+                  faq_link: html`<a
+                    href=${documentationUrl(this.hass, "/faq/unique_id")}
+                    target="_blank"
+                    rel="noreferrer"
+                    >${this.hass.localize("ui.dialogs.entity_registry.faq")}</a
+                  >`,
+                }
               )}
-              sortable
-              @value-changed=${this._aliasesChanged}
-            ></ha-aliases-editor>
-          `}
+            </ha-alert>`
+          : html`
+              <ha-row-item>
+                <span slot="headline">${this._computedName(this.entry)}</span>
+                <span slot="supporting-text">
+                  ${this.hass.localize(
+                    "ui.dialogs.voice-settings.entity_name_alias_description"
+                  )}
+                </span>
+                <ha-switch
+                  slot="end"
+                  .checked=${(this._aliases ?? this.entry.aliases).includes(null)}
+                  @change=${this._toggleEntityNameAlias}
+                ></ha-switch>
+              </ha-row-item>
+              <ha-aliases-editor
+                .aliases=${(this._aliases ?? this.entry.aliases).filter(
+                  (a): a is string => a !== null
+                )}
+                sortable
+                @value-changed=${this._aliasesChanged}
+              ></ha-aliases-editor>
+            `
+      }
     `;
+  }
+
+  // Same composition as the backend's computed name alias
+  private _computedName(entry: ExtEntityRegistryEntry): string {
+    if (entry.name) {
+      return entry.name;
+    }
+    return computeEntityEntryNameList(
+      entry,
+      [{ type: "parent_device" }, { type: "device" }, { type: "entity" }],
+      this.hass.entities,
+      this.hass.devices,
+      this.hass.areas,
+      this.hass.floors
+    )
+      .filter(Boolean)
+      .join(" ");
   }
 
   private async _toggleEntityNameAlias(ev) {
@@ -406,10 +456,8 @@ export class EntityVoiceSettings extends SubscribeMixin(LitElement) {
           margin: 32px;
           margin-top: 0;
         }
-        ha-md-list-item {
-          --md-list-item-leading-space: 0;
-          --md-list-item-trailing-space: 0;
-          --md-item-overflow: visible;
+        ha-row-item {
+          --ha-row-item-padding-inline: 0;
         }
         img {
           height: 32px;

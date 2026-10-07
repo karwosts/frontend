@@ -11,6 +11,7 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
 import { isComponentLoaded } from "../../../../common/config/is_component_loaded";
+import { consumeLocalize } from "../../../../common/decorators/consume-context-entry";
 import { fireEvent } from "../../../../common/dom/fire_event";
 import { capitalizeFirstLetter } from "../../../../common/string/capitalize-first-letter";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
@@ -27,7 +28,7 @@ import "./ha-backup-formfield-label";
 interface CheckBoxItem {
   label: string;
   id: string;
-  version?: string;
+  version?: string | null;
 }
 
 const ITEM_ICONS = {
@@ -51,16 +52,17 @@ export class HaBackupDataPicker extends LitElement {
 
   @property({ attribute: false }) public value?: BackupData;
 
-  @property({ attribute: false }) public localize?: LocalizeFunc;
-
   @property({ type: Array, attribute: "required-items" })
   public requiredItems: string[] = [];
 
   @property({ attribute: "translation-key-panel" }) public translationKeyPanel:
-    | "page-onboarding.restore"
-    | "config.backup" = "config.backup";
+    "page-onboarding.restore" | "config.backup" = "config.backup";
 
   @property({ attribute: false }) public addonsDisabled = false;
+
+  @state()
+  @consumeLocalize()
+  private _localize!: LocalizeFunc;
 
   @state() public _addonIcons: Record<string, boolean> = {};
 
@@ -106,21 +108,21 @@ export class HaBackupDataPicker extends LitElement {
   );
 
   private _localizeFolder(folder: string): string {
-    const localize = this.localize || this.hass!.localize;
-
     switch (folder) {
       case "media":
-        return localize(
+        return this._localize(
           `ui.panel.${this.translationKeyPanel}.data_picker.media`
         );
       case "share":
-        return localize(
+        return this._localize(
           `ui.panel.${this.translationKeyPanel}.data_picker.share_folder`
         );
       case "ssl":
-        return localize(`ui.panel.${this.translationKeyPanel}.data_picker.ssl`);
+        return this._localize(
+          `ui.panel.${this.translationKeyPanel}.data_picker.ssl`
+        );
       case "addons/local":
-        return localize(
+        return this._localize(
           `ui.panel.${this.translationKeyPanel}.data_picker.local_apps`
         );
     }
@@ -226,89 +228,101 @@ export class HaBackupDataPicker extends LitElement {
   }
 
   protected render() {
-    const localize = this.localize || this.hass!.localize;
-
-    const homeAssistantItems = this._homeAssistantItems(this.data, localize);
+    const homeAssistantItems = this._homeAssistantItems(
+      this.data,
+      this._localize
+    );
 
     const addonsItems = this._addonsItems(
       this.data,
-      localize,
+      this._localize,
       this._addonIcons
     );
 
     const selectedItems = this._parseValue(this.value);
 
     return html`
-      ${homeAssistantItems.length
-        ? html`
-            <div class="section">
-              <ha-checkbox
-                .id=${"homeassistant"}
-                .checked=${selectedItems.homeassistant.length ===
-                homeAssistantItems.length}
-                .indeterminate=${selectedItems.homeassistant.length > 0 &&
-                selectedItems.homeassistant.length < homeAssistantItems.length}
-                @change=${this._sectionChanged}
-                ?disabled=${this.requiredItems.length > 0}
-              >
-                <ha-backup-formfield-label
-                  label="Home Assistant"
-                  .iconPath=${mdiHomeAssistant}
+      ${
+        homeAssistantItems.length
+          ? html`
+              <div class="section">
+                <ha-checkbox
+                  .id=${"homeassistant"}
+                  .checked=${
+                    selectedItems.homeassistant.length ===
+                    homeAssistantItems.length
+                  }
+                  .indeterminate=${
+                    selectedItems.homeassistant.length > 0 &&
+                    selectedItems.homeassistant.length <
+                      homeAssistantItems.length
+                  }
+                  @change=${this._sectionChanged}
+                  ?disabled=${this.requiredItems.length > 0}
                 >
-                </ha-backup-formfield-label>
-              </ha-checkbox>
-              <div class="items">
-                ${homeAssistantItems.map(
-                  (item) => html`
-                    <ha-checkbox
-                      .id=${item.id}
-                      .checked=${selectedItems.homeassistant.includes(item.id)}
-                      @change=${this._homeassistantChanged}
-                      .disabled=${this.requiredItems.includes(item.id)}
-                    >
-                      <ha-backup-formfield-label
-                        .label=${item.label}
-                        .version=${item.version}
-                        .iconPath=${ITEM_ICONS[item.id] || mdiFolder}
+                  <ha-backup-formfield-label
+                    label="Home Assistant"
+                    .iconPath=${mdiHomeAssistant}
+                  >
+                  </ha-backup-formfield-label>
+                </ha-checkbox>
+                <div class="items">
+                  ${homeAssistantItems.map(
+                    (item) => html`
+                      <ha-checkbox
+                        .id=${item.id}
+                        .checked=${selectedItems.homeassistant.includes(item.id)}
+                        @change=${this._homeassistantChanged}
+                        .disabled=${this.requiredItems.includes(item.id)}
                       >
-                      </ha-backup-formfield-label>
-                    </ha-checkbox>
-                  `
-                )}
-              </div>
-            </div>
-          `
-        : nothing}
-      ${addonsItems.length
-        ? html`
-            <div class="section">
-              <ha-checkbox
-                .id=${"addons"}
-                .checked=${selectedItems.addons.length === addonsItems.length}
-                .indeterminate=${selectedItems.addons.length > 0 &&
-                selectedItems.addons.length < addonsItems.length}
-                @change=${this._sectionChanged}
-                .disabled=${this.addonsDisabled}
-              >
-                <ha-backup-formfield-label
-                  .label=${localize(
-                    `ui.panel.${this.translationKeyPanel}.data_picker.apps`
+                        <ha-backup-formfield-label
+                          .label=${item.label}
+                          .version=${item.version}
+                          .iconPath=${ITEM_ICONS[item.id] || mdiFolder}
+                        >
+                        </ha-backup-formfield-label>
+                      </ha-checkbox>
+                    `
                   )}
-                  .iconPath=${mdiPuzzle}
+                </div>
+              </div>
+            `
+          : nothing
+      }
+      ${
+        addonsItems.length
+          ? html`
+              <div class="section">
+                <ha-checkbox
+                  .id=${"addons"}
+                  .checked=${selectedItems.addons.length === addonsItems.length}
+                  .indeterminate=${
+                    selectedItems.addons.length > 0 &&
+                    selectedItems.addons.length < addonsItems.length
+                  }
+                  @change=${this._sectionChanged}
+                  .disabled=${this.addonsDisabled}
                 >
-                </ha-backup-formfield-label>
-              </ha-checkbox>
-              <ha-backup-addons-picker
-                .hass=${this.hass}
-                .value=${selectedItems.addons}
-                @value-changed=${this._addonsChanged}
-                .addons=${addonsItems}
-                .disabled=${this.addonsDisabled}
-              >
-              </ha-backup-addons-picker>
-            </div>
-          `
-        : nothing}
+                  <ha-backup-formfield-label
+                    .label=${this._localize(
+                      `ui.panel.${this.translationKeyPanel}.data_picker.apps`
+                    )}
+                    .iconPath=${mdiPuzzle}
+                  >
+                  </ha-backup-formfield-label>
+                </ha-checkbox>
+                <ha-backup-addons-picker
+                  .hass=${this.hass}
+                  .value=${selectedItems.addons}
+                  @value-changed=${this._addonsChanged}
+                  .addons=${addonsItems}
+                  .disabled=${this.addonsDisabled}
+                >
+                </ha-backup-addons-picker>
+              </div>
+            `
+          : nothing
+      }
     `;
   }
 

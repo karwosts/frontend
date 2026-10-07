@@ -1,11 +1,17 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import { mdiFilterVariantRemove, mdiTextureBox } from "@mdi/js";
 import type { CSSResultGroup, PropertyValues } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
+import { createRef, ref } from "lit/directives/ref";
 import { repeat } from "lit/directives/repeat";
 import memoizeOne from "memoize-one";
+import { consume } from "../common/decorators/consume";
+import {
+  FilterPanelController,
+  filterPanelStyles,
+} from "../common/controllers/filter-panel-controller";
 import { consumeLocalize } from "../common/decorators/consume-context-entry";
 import { fireEvent } from "../common/dom/fire_event";
 import { computeRTL } from "../common/util/compute_rtl";
@@ -60,13 +66,18 @@ export class HaFilterFloorAreas extends LitElement {
 
   @property() public type?: keyof RelatedResult;
 
+  @property({ type: Boolean, attribute: "include-disabled-entities" })
+  public includeDisabledEntities = false;
+
   @property({ type: Boolean }) public narrow = false;
 
   @property({ type: Boolean, reflect: true }) public expanded = false;
 
-  @state() private _shouldRender = false;
-
   @query("ha-list-selectable") private _list?: HaListSelectable;
+
+  private _content = createRef<HTMLElement>();
+
+  private _panel = new FilterPanelController(this, this._content);
 
   public willUpdate(properties: PropertyValues<this>) {
     super.willUpdate(properties);
@@ -86,69 +97,79 @@ export class HaFilterFloorAreas extends LitElement {
       <ha-expansion-panel
         left-chevron
         .expanded=${this.expanded}
-        @expanded-will-change=${this._expandedWillChange}
         @expanded-changed=${this._expandedChanged}
       >
         <div slot="header" class="header">
           ${this._localize("ui.panel.config.areas.caption")}
-          ${this.value?.areas?.length || this.value?.floors?.length
-            ? html`<div class="badge">
-                  ${(this.value?.areas?.length || 0) +
-                  (this.value?.floors?.length || 0)}
-                </div>
-                <ha-icon-button
-                  .path=${mdiFilterVariantRemove}
-                  @click=${this._clearFilter}
-                  @keydown=${this._handleClearFilterKeydown}
-                ></ha-icon-button>`
-            : nothing}
+          ${
+            this.value?.areas?.length || this.value?.floors?.length
+              ? html`<div class="badge">
+                    ${
+                      (this.value?.areas?.length || 0) +
+                      (this.value?.floors?.length || 0)
+                    }
+                  </div>
+                  <ha-icon-button
+                    .path=${mdiFilterVariantRemove}
+                    @click=${this._clearFilter}
+                    @keydown=${this._handleClearFilterKeydown}
+                  ></ha-icon-button>`
+              : nothing
+          }
         </div>
-        ${this._shouldRender
-          ? html`
-              <ha-list-selectable
-                class="ha-scrollbar"
-                multi
-                @ha-list-item-selected=${this._handleAdded}
-                @ha-list-item-deselected=${this._handleRemoved}
-                aria-label=${this._localize("ui.panel.config.areas.caption")}
-              >
-                ${repeat(
-                  areas?.floors || [],
-                  (floor) => floor.floor_id,
-                  (floor) => html`
-                    <ha-list-item-option
-                      appearance="checkbox"
-                      selection-position="end"
-                      .value=${floor.floor_id}
-                      .type=${"floors"}
-                      .selected=${this.value?.floors?.includes(
-                        floor.floor_id
-                      ) || false}
-                    >
-                      <ha-floor-icon
-                        slot="start"
-                        .floor=${floor}
-                      ></ha-floor-icon>
-                      <span slot="headline">${floor.name} </span>
-                    </ha-list-item-option>
-                    ${repeat(
-                      floor.areas,
-                      (area, index) =>
-                        `${area.area_id}${index === floor.areas.length - 1 ? "___last" : ""}`,
-                      (area, index) =>
-                        this._renderArea(area, index === floor.areas.length - 1)
-                    )}
-                  `
-                )}
-                ${repeat(
-                  areas?.unassisgnedAreas,
-                  (area) => area.area_id,
-                  (area) => this._renderArea(area)
-                )}
-              </ha-list-selectable>
-            `
-          : nothing}
       </ha-expansion-panel>
+      ${
+        this._panel.showContent
+          ? html`
+              <div class="content" ${ref(this._content)}>
+                <ha-list-selectable
+                  class="ha-scrollbar"
+                  multi
+                  @ha-list-item-selected=${this._handleAdded}
+                  @ha-list-item-deselected=${this._handleRemoved}
+                  aria-label=${this._localize("ui.panel.config.areas.caption")}
+                >
+                  ${repeat(
+                    areas?.floors || [],
+                    (floor) => floor.floor_id,
+                    (floor) => html`
+                      <ha-list-item-option
+                        appearance="checkbox"
+                        selection-position="end"
+                        .value=${floor.floor_id}
+                        .type=${"floors"}
+                        .selected=${
+                          this.value?.floors?.includes(floor.floor_id) || false
+                        }
+                      >
+                        <ha-floor-icon
+                          slot="start"
+                          .floor=${floor}
+                        ></ha-floor-icon>
+                        <span slot="headline">${floor.name} </span>
+                      </ha-list-item-option>
+                      ${repeat(
+                        floor.areas,
+                        (area, index) =>
+                          `${area.area_id}${index === floor.areas.length - 1 ? "___last" : ""}`,
+                        (area, index) =>
+                          this._renderArea(
+                            area,
+                            index === floor.areas.length - 1
+                          )
+                      )}
+                    `
+                  )}
+                  ${repeat(
+                    areas?.unassisgnedAreas,
+                    (area) => area.area_id,
+                    (area) => this._renderArea(area)
+                  )}
+                </ha-list-selectable>
+              </div>
+            `
+          : nothing
+      }
     `;
   }
 
@@ -170,18 +191,22 @@ export class HaFilterFloorAreas extends LitElement {
           floor: hasFloor,
         })}
       >
-        ${hasFloor
-          ? html`<ha-tree-indicator
-              slot="start"
-              .end=${last}
-            ></ha-tree-indicator>`
-          : nothing}
-        ${area.icon
-          ? html`<ha-icon slot="start" .icon=${area.icon}></ha-icon>`
-          : html`<ha-svg-icon
-              slot="start"
-              .path=${mdiTextureBox}
-            ></ha-svg-icon>`}
+        ${
+          hasFloor
+            ? html`<ha-tree-indicator
+                slot="start"
+                .end=${last}
+              ></ha-tree-indicator>`
+            : nothing
+        }
+        ${
+          area.icon
+            ? html`<ha-icon slot="start" .icon=${area.icon}></ha-icon>`
+            : html`<ha-svg-icon
+                slot="start"
+                .path=${mdiTextureBox}
+              ></ha-svg-icon>`
+        }
         <span slot="headline">${area.name}</span>
       </ha-list-item-option>
     `;
@@ -230,19 +255,6 @@ export class HaFilterFloorAreas extends LitElement {
     };
   }
 
-  protected updated(changed: PropertyValues<this>) {
-    if (changed.has("expanded") && this.expanded) {
-      setTimeout(() => {
-        if (!this.expanded) return;
-        this._list!.style.height = `${this.clientHeight - 49}px`;
-      }, 300);
-    }
-  }
-
-  private _expandedWillChange(ev) {
-    this._shouldRender = ev.detail.expanded;
-  }
-
   private _expandedChanged(ev) {
     this.expanded = ev.detail.expanded;
   }
@@ -287,7 +299,9 @@ export class HaFilterFloorAreas extends LitElement {
     if (this.value.areas) {
       for (const areaId of this.value.areas) {
         if (this.type) {
-          relatedPromises.push(findRelated(this._api, "area", areaId));
+          relatedPromises.push(
+            findRelated(this._api, "area", areaId, this.includeDisabledEntities)
+          );
         }
       }
     }
@@ -295,7 +309,14 @@ export class HaFilterFloorAreas extends LitElement {
     if (this.value.floors) {
       for (const floorId of this.value.floors) {
         if (this.type) {
-          relatedPromises.push(findRelated(this._api, "floor", floorId));
+          relatedPromises.push(
+            findRelated(
+              this._api,
+              "floor",
+              floorId,
+              this.includeDisabledEntities
+            )
+          );
         }
       }
     }
@@ -334,17 +355,11 @@ export class HaFilterFloorAreas extends LitElement {
   static get styles(): CSSResultGroup {
     return [
       haStyleScrollbar,
+      filterPanelStyles,
       css`
-        :host {
-          border-bottom: 1px solid var(--divider-color);
-        }
-        :host([expanded]) {
+        ha-list-selectable {
           flex: 1;
-          height: 0;
-        }
-        ha-expansion-panel {
-          --ha-card-border-radius: var(--ha-border-radius-square);
-          --expansion-panel-content-padding: 0;
+          min-height: 0;
         }
         .header {
           display: flex;

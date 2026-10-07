@@ -194,17 +194,19 @@ class DialogMatterAddDevice extends LitElement {
       entityIds
     );
 
-    this._mainEntity = Object.values(entries).find((entry) => {
-      if (entry.entity_category) return false;
-      const domain = computeDomain(entry.entity_id);
-      const deviceClasses = OVERRIDE_DEVICE_CLASSES[domain];
-      if (!deviceClasses) return false;
-      const deviceClass = entry.device_class ?? entry.original_device_class;
-      if (!deviceClass) return false;
-      return deviceClasses.some(
-        (classes) => classes.length > 1 && classes.includes(deviceClass)
-      );
-    });
+    this._mainEntity = Object.values(entries)
+      .filter((entry): entry is ExtEntityRegistryEntry => entry !== null)
+      .find((entry) => {
+        if (entry.entity_category) return false;
+        const domain = computeDomain(entry.entity_id);
+        const deviceClasses = OVERRIDE_DEVICE_CLASSES[domain];
+        if (!deviceClasses) return false;
+        const deviceClass = entry.device_class ?? entry.original_device_class;
+        if (!deviceClass) return false;
+        return deviceClasses.some(
+          (classes) => classes.length > 1 && classes.includes(deviceClass)
+        );
+      });
   }
 
   private _dialogClosed(): void {
@@ -399,13 +401,15 @@ class DialogMatterAddDevice extends LitElement {
     if (this._step === "device_added") {
       return html`
         <ha-button slot="primaryAction" @click=${this._finishDeviceAdded}>
-          ${this._deviceAddedState.hasPendingUpdates
-            ? this.hass.localize(
-                "ui.dialogs.matter-add-device.device_added.finish"
-              )
-            : this.hass.localize(
-                "ui.dialogs.matter-add-device.device_added.skip"
-              )}
+          ${
+            this._deviceAddedState.hasPendingUpdates
+              ? this.hass.localize(
+                  "ui.dialogs.matter-add-device.device_added.finish"
+                )
+              : this.hass.localize(
+                  "ui.dialogs.matter-add-device.device_added.skip"
+                )
+          }
         </ha-button>
       `;
     }
@@ -432,20 +436,24 @@ class DialogMatterAddDevice extends LitElement {
         prevent-scrim-close
         @closed=${this._dialogClosed}
       >
-        ${hasBackStep
-          ? html`
-              <ha-icon-button-arrow-prev
-                slot="headerNavigationIcon"
-                @click=${this._back}
-              ></ha-icon-button-arrow-prev>
-            `
-          : nothing}
+        ${
+          hasBackStep
+            ? html`
+                <ha-icon-button-arrow-prev
+                  slot="headerNavigationIcon"
+                  @click=${this._back}
+                ></ha-icon-button-arrow-prev>
+              `
+            : nothing
+        }
         ${this._renderStep()}
-        ${actions === nothing
-          ? nothing
-          : html`<ha-dialog-footer slot="footer">
-              ${actions}
-            </ha-dialog-footer>`}
+        ${
+          actions === nothing
+            ? nothing
+            : html`<ha-dialog-footer slot="footer">
+                ${actions}
+              </ha-dialog-footer>`
+        }
       </ha-dialog>
     `;
   }

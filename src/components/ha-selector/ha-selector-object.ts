@@ -4,6 +4,7 @@ import {
   mdiDragHorizontalVariant,
   mdiPencil,
 } from "@mdi/js";
+import deepClone from "deep-clone-simple";
 import { css, html, LitElement, nothing, type PropertyValues } from "lit";
 import { customElement, property, query } from "lit/decorators";
 import memoizeOne from "memoize-one";
@@ -13,6 +14,7 @@ import type { ObjectSelector } from "../../data/selector";
 import { formatSelectorValue } from "../../data/selector/format_selector_value";
 import { showFormDialog } from "../../dialogs/form/show-form-dialog";
 import type { HomeAssistant } from "../../types";
+import { computeInitialHaFormData } from "../ha-form/compute-initial-ha-form-data";
 import type { HaFormSchema } from "../ha-form/types";
 import "../ha-input-helper-text";
 import "../ha-md-list";
@@ -114,21 +116,25 @@ export class HaObjectSelector extends LitElement {
     const multiple = this.selector.object!.multiple || false;
     return html`
       <ha-md-list-item class="item">
-        ${reorderable
-          ? html`
-              <ha-svg-icon
-                class="handle"
-                .path=${mdiDragHorizontalVariant}
-                slot="start"
-              ></ha-svg-icon>
-            `
-          : nothing}
+        ${
+          reorderable
+            ? html`
+                <ha-svg-icon
+                  class="handle"
+                  .path=${mdiDragHorizontalVariant}
+                  slot="start"
+                ></ha-svg-icon>
+              `
+            : nothing
+        }
         <div slot="headline" class="label">${label}</div>
-        ${description
-          ? html`<div slot="supporting-text" class="description">
-              ${description}
-            </div>`
-          : nothing}
+        ${
+          description
+            ? html`<div slot="supporting-text" class="description">
+                ${description}
+              </div>`
+            : nothing
+        }
         <ha-icon-button
           slot="end"
           .item=${item}
@@ -174,15 +180,17 @@ export class HaObjectSelector extends LitElement {
       return html`
         ${this.label ? html`<label>${this.label}</label>` : nothing}
         <div class="items-container">
-          ${this.value
-            ? html`<ha-md-list>
-                ${this._renderItem(this.value, 0)}
-              </ha-md-list>`
-            : html`
-                <ha-button appearance="filled" @click=${this._addItem}>
-                  ${this.hass.localize("ui.common.add")}
-                </ha-button>
-              `}
+          ${
+            this.value
+              ? html`<ha-md-list>
+                  ${this._renderItem(this.value, 0)}
+                </ha-md-list>`
+              : html`
+                  <ha-button appearance="filled" @click=${this._addItem}>
+                    ${this.hass.localize("ui.common.add")}
+                  </ha-button>
+                `
+          }
         </div>
       `;
     }
@@ -195,11 +203,11 @@ export class HaObjectSelector extends LitElement {
         .defaultValue=${this.value}
         @value-changed=${this._handleChange}
       ></ha-yaml-editor>
-      ${this.helper
-        ? html`<ha-input-helper-text .disabled=${this.disabled}
-            >${this.helper}</ha-input-helper-text
-          >`
-        : ""} `;
+      ${
+        this.helper
+          ? html`<ha-input-helper-text>${this.helper}</ha-input-helper-text>`
+          : ""
+      } `;
   }
 
   private _schema = memoizeOne((selector: ObjectSelector) => {
@@ -210,6 +218,9 @@ export class HaObjectSelector extends LitElement {
       name: key,
       selector: field.selector,
       required: field.required ?? false,
+      ...("default" in field
+        ? { default: field.default as HaFormSchema["default"] }
+        : {}),
     }));
   });
 
@@ -229,10 +240,22 @@ export class HaObjectSelector extends LitElement {
   private async _addItem(ev) {
     ev.stopPropagation();
 
+    const schema = this._schema(this.selector);
+    const data = {
+      ...computeInitialHaFormData(schema, {
+        skipUnsupportedSelectors: true,
+      }),
+      ...Object.fromEntries(
+        schema
+          .filter((field) => "default" in field)
+          .map((field) => [field.name, deepClone(field.default)])
+      ),
+    };
+
     const newItem = await showFormDialog(this, {
       title: this.hass.localize("ui.common.add"),
-      schema: this._schema(this.selector),
-      data: {},
+      schema,
+      data,
       computeLabel: this._computeLabel,
       computeHelper: this._computeHelper,
       submitText: this.hass.localize("ui.common.add"),
@@ -285,7 +308,7 @@ export class HaObjectSelector extends LitElement {
     const index = ev.currentTarget.index;
 
     if (!this.selector.object!.multiple) {
-      fireEvent(this, "value-changed", { value: undefined });
+      fireEvent(this, "value-changed", { value: "" });
       return;
     }
 

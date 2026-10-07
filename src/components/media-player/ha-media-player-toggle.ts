@@ -1,56 +1,85 @@
-import { type CSSResultGroup, LitElement, css, html } from "lit";
-import { customElement, property } from "lit/decorators";
+import type { ContextType } from "@lit/context";
 import { mdiSpeaker, mdiSpeakerPause, mdiSpeakerPlay } from "@mdi/js";
+import type { HassEntity } from "home-assistant-js-websocket";
+import { type CSSResultGroup, LitElement, css, html, nothing } from "lit";
+import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
+import { consume } from "../../common/decorators/consume";
 
-import type { HomeAssistant } from "../../types";
-import { computeEntityNameList } from "../../common/entity/compute_entity_name_display";
-import { computeRTL } from "../../common/util/compute_rtl";
+import { consumeEntityState } from "../../common/decorators/consume-context-entry";
 import { fireEvent } from "../../common/dom/fire_event";
+import { computeEntityPickerDisplay } from "../../common/entity/compute_entity_name_display";
+import {
+  areasContext,
+  devicesContext,
+  entitiesContext,
+  floorsContext,
+  internationalizationContext,
+} from "../../data/context";
 
 import "../ha-switch";
 import "../ha-svg-icon";
 
 @customElement("ha-media-player-toggle")
 class HaMediaPlayerToggle extends LitElement {
-  @property({ attribute: false }) public hass!: HomeAssistant;
-
   @property({ attribute: false }) public entityId!: string;
 
   @property({ type: Boolean }) public checked = false;
 
   @property({ type: Boolean }) public disabled = false;
 
+  @state()
+  @consumeEntityState({ entityIdPath: ["entityId"] })
+  private _stateObj?: HassEntity;
+
+  @consume({ context: entitiesContext, subscribe: true })
+  @state()
+  private _entities!: ContextType<typeof entitiesContext>;
+
+  @consume({ context: devicesContext, subscribe: true })
+  @state()
+  private _devices!: ContextType<typeof devicesContext>;
+
+  @consume({ context: areasContext, subscribe: true })
+  @state()
+  private _areas!: ContextType<typeof areasContext>;
+
+  @consume({ context: floorsContext, subscribe: true })
+  @state()
+  private _floors!: ContextType<typeof floorsContext>;
+
+  @consume({ context: internationalizationContext, subscribe: true })
+  @state()
+  private _i18n!: ContextType<typeof internationalizationContext>;
+
   private _computeDisplayData = memoizeOne(
     (
-      entityId: string,
-      entities: HomeAssistant["entities"],
-      devices: HomeAssistant["devices"],
-      areas: HomeAssistant["areas"],
-      floors: HomeAssistant["floors"],
-      isRTL: boolean,
-      stateObj: HomeAssistant["states"][string]
-    ) => {
-      const [entityName, deviceName, areaName] = computeEntityNameList(
-        stateObj,
-        [{ type: "entity" }, { type: "device" }, { type: "area" }],
-        entities,
-        devices,
-        areas,
-        floors
-      );
-
-      const primary = entityName || deviceName || entityId;
-      const secondary = [areaName, entityName ? deviceName : undefined]
-        .filter(Boolean)
-        .join(isRTL ? " ◂ " : " ▸ ");
-
-      return { primary, secondary };
-    }
+      entities: ContextType<typeof entitiesContext>,
+      devices: ContextType<typeof devicesContext>,
+      areas: ContextType<typeof areasContext>,
+      floors: ContextType<typeof floorsContext>,
+      i18n: ContextType<typeof internationalizationContext>,
+      stateObj: HassEntity
+    ) =>
+      computeEntityPickerDisplay(
+        {
+          entities,
+          devices,
+          areas,
+          floors,
+          language: i18n.language,
+          translationMetadata: i18n.translationMetadata,
+        },
+        stateObj
+      )
   );
 
   protected render() {
-    const stateObj = this.hass.states[this.entityId];
+    const stateObj = this._stateObj;
+
+    if (!stateObj) {
+      return nothing;
+    }
 
     let icon = mdiSpeaker;
     if (stateObj.state === "playing") {
@@ -59,18 +88,12 @@ class HaMediaPlayerToggle extends LitElement {
       icon = mdiSpeakerPause;
     }
 
-    const isRTL = computeRTL(
-      this.hass.language,
-      this.hass.translationMetadata.translations
-    );
-
     const { primary, secondary } = this._computeDisplayData(
-      this.entityId,
-      this.hass.entities,
-      this.hass.devices,
-      this.hass.areas,
-      this.hass.floors,
-      isRTL,
+      this._entities,
+      this._devices,
+      this._areas,
+      this._floors,
+      this._i18n,
       stateObj
     );
 

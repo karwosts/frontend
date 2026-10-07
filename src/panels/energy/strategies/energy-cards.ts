@@ -12,11 +12,7 @@ export interface EnergyViewStrategyConfig extends LovelaceStrategyConfig {
 }
 
 export type EnergyViewPath =
-  | "overview"
-  | "electricity"
-  | "gas"
-  | "water"
-  | "now";
+  "overview" | "electricity" | "gas" | "water" | "now";
 
 // --- Applicability helpers -------------------------------------------------
 // Source-shape predicates shared by the catalog entries below, the view
@@ -88,6 +84,14 @@ export const hasGasRateSource = (prefs: EnergyPreferences): boolean =>
   prefs.energy_sources.some(
     (source) => source.type === "gas" && !!source.stat_rate
   );
+
+/** Whether the Now view has any live power or flow-rate content to show. */
+export const hasNowViewContent = (prefs: EnergyPreferences): boolean =>
+  hasPowerSources(prefs) ||
+  hasPowerDevices(prefs) ||
+  hasWaterRateSource(prefs) ||
+  hasWaterRateDevices(prefs) ||
+  hasGasRateSource(prefs);
 
 // --- Card catalog ----------------------------------------------------------
 

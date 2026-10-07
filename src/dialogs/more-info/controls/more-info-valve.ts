@@ -1,8 +1,8 @@
-import { consume } from "@lit/context";
 import { mdiMenu, mdiSwapVertical } from "@mdi/js";
 import type { CSSResultGroup, PropertyValues } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import { consumeLocalize } from "../../../common/decorators/consume-context-entry";
 import { supportsFeature } from "../../../common/entity/supports-feature";
 import type { LocalizeFunc } from "../../../common/translations/localize";
@@ -115,32 +115,36 @@ class MoreInfoValve extends LitElement {
           ${
             this._mode === "position"
               ? html`
-                  ${supportsPosition
-                    ? html`
-                        <ha-state-control-valve-position
-                          .stateObj=${this.stateObj}
-                        ></ha-state-control-valve-position>
-                      `
-                    : nothing}
+                  ${
+                    supportsPosition
+                      ? html`
+                          <ha-state-control-valve-position
+                            .stateObj=${this.stateObj}
+                          ></ha-state-control-valve-position>
+                        `
+                      : nothing
+                  }
                 `
               : nothing
           }
           ${
             this._mode === "button"
               ? html`
-                  ${supportsOpenCloseOnly
-                    ? html`
-                        <ha-state-control-valve-toggle
-                          .stateObj=${this.stateObj}
-                        ></ha-state-control-valve-toggle>
-                      `
-                    : supportsOpenClose
+                  ${
+                    supportsOpenCloseOnly
                       ? html`
-                          <ha-state-control-valve-buttons
+                          <ha-state-control-valve-toggle
                             .stateObj=${this.stateObj}
-                          ></ha-state-control-valve-buttons>
+                          ></ha-state-control-valve-toggle>
                         `
-                      : nothing}
+                      : supportsOpenClose
+                        ? html`
+                            <ha-state-control-valve-buttons
+                              .stateObj=${this.stateObj}
+                            ></ha-state-control-valve-buttons>
+                          `
+                        : nothing
+                  }
                 `
               : nothing
           }

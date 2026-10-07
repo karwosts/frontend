@@ -1,4 +1,3 @@
-import { memoize } from "@fullcalendar/core/internal";
 import { setHours, setMinutes } from "date-fns";
 import type { HassConfig } from "home-assistant-js-websocket";
 import memoizeOne from "memoize-one";
@@ -48,7 +47,7 @@ export interface BackupConfig {
   last_attempted_automatic_backup: string | null;
   last_completed_automatic_backup: string | null;
   next_automatic_backup: string | null;
-  next_automatic_backup_additional?: boolean;
+  next_automatic_backup_additional: boolean;
   create_backup: {
     agent_ids: string[];
     include_addons: string[] | null;
@@ -61,7 +60,7 @@ export interface BackupConfig {
   retention: Retention;
   schedule: {
     recurrence: BackupScheduleRecurrence;
-    time?: string | null;
+    time: string | null;
     days: BackupDay[];
   };
   agents: BackupAgentsConfig;
@@ -80,9 +79,9 @@ export interface BackupMutableConfig {
   };
   retention?: Retention;
   schedule?: {
-    recurrence: BackupScheduleRecurrence;
+    recurrence?: BackupScheduleRecurrence;
     time?: string | null;
-    days?: BackupDay[] | null;
+    days?: BackupDay[];
   };
   agents?: BackupAgentsConfig;
 }
@@ -115,21 +114,22 @@ export interface BackupContent {
   date: string;
   name: string;
   agents: Record<string, BackupContentAgent>;
-  failed_agent_ids?: string[];
-  failed_addons?: AddonInfo[];
-  failed_folders?: string[];
-  extra_metadata?: {
+  failed_agent_ids: string[];
+  failed_addons: AddonInfo[];
+  failed_folders: string[];
+  extra_metadata: {
     "supervisor.addon_update"?: string;
     "supervisor.app_update"?: string;
+    [key: string]: string | boolean | undefined;
   };
-  with_automatic_settings: boolean;
+  with_automatic_settings: boolean | null;
 }
 
 export interface BackupData {
   addons: BackupAddon[];
   database_included: boolean;
   folders: string[];
-  homeassistant_version: string;
+  homeassistant_version: string | null;
   homeassistant_included: boolean;
 }
 
@@ -142,7 +142,7 @@ export interface BackupAddon {
 export interface BackupContentExtended extends BackupContent, BackupData {}
 
 export interface BackupInfo {
-  backups: BackupContent[];
+  backups: BackupContentExtended[];
   agent_errors: Record<string, string>;
   last_attempted_automatic_backup: string | null;
   last_completed_automatic_backup: string | null;
@@ -153,6 +153,7 @@ export interface BackupInfo {
 }
 
 export interface BackupDetails {
+  agent_errors: Record<string, string>;
   backup: BackupContentExtended;
 }
 
@@ -180,6 +181,8 @@ export interface RestoreBackupParams {
   restore_folders?: string[];
   restore_homeassistant?: boolean;
 }
+
+export type CloudBackupHealth = "success" | "failed" | "old" | "none";
 
 export const fetchBackupConfig = (hass: Pick<HomeAssistant, "callWS">) =>
   hass.callWS<{ config: BackupConfig }>({ type: "backup/config/info" });
@@ -231,7 +234,10 @@ export const fetchBackupAgentsInfo = (
     type: "backup/agents/info",
   });
 
-export const deleteBackup = (hass: HomeAssistant, id: string): Promise<void> =>
+export const deleteBackup = (
+  hass: HomeAssistant,
+  id: string
+): Promise<{ agent_errors: Record<string, string> }> =>
   hass.callWS({
     type: "backup/delete",
     backup_id: id,
@@ -240,7 +246,7 @@ export const deleteBackup = (hass: HomeAssistant, id: string): Promise<void> =>
 export const generateBackup = (
   hass: HomeAssistant,
   params: GenerateBackupParams
-): Promise<{ backup_id: string }> =>
+): Promise<{ backup_job_id: string }> =>
   hass.callWS({
     type: "backup/generate",
     ...params,
@@ -248,7 +254,7 @@ export const generateBackup = (
 
 export const generateBackupWithAutomaticSettings = (
   hass: HomeAssistant
-): Promise<void> =>
+): Promise<{ backup_job_id: string }> =>
   hass.callWS({
     type: "backup/generate_with_automatic_settings",
   });
@@ -256,7 +262,7 @@ export const generateBackupWithAutomaticSettings = (
 export const restoreBackup = (
   hass: HomeAssistant,
   params: RestoreBackupParams
-): Promise<{ backup_id: string }> =>
+): Promise<void> =>
   hass.callWS({
     type: "backup/restore",
     ...params,
@@ -314,8 +320,60 @@ export const CORE_LOCAL_AGENT = "backup.local";
 export const HASSIO_LOCAL_AGENT = "hassio.local";
 export const CLOUD_AGENT = "cloud.cloud";
 
+// How many hours a scheduled automatic backup may be behind before it reads as
+// overdue, so a few hours of scheduler lag (or a daylight saving shift) doesn't
+// show a warning.
+export const BACKUP_OVERDUE_MARGIN_HOURS = 3;
+
 export const isLocalAgent = (agentId: string) =>
   [CORE_LOCAL_AGENT, HASSIO_LOCAL_AGENT].includes(agentId);
+
+export const getLastCloudBackup = (
+  backups?: BackupContent[]
+): BackupContent | undefined =>
+  backups
+    ?.filter((backup) => CLOUD_AGENT in backup.agents)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+
+export const cloudBackupEnabled = (backupConfig?: BackupConfig): boolean =>
+  !!backupConfig?.automatic_backups_configured &&
+  backupConfig.create_backup.agent_ids.includes(CLOUD_AGENT);
+
+const BACKUP_OVERDUE_MARGIN_MS = BACKUP_OVERDUE_MARGIN_HOURS * 60 * 60 * 1000;
+
+export const cloudBackupHealth = (
+  backupConfig?: BackupConfig
+): CloudBackupHealth => {
+  if (!cloudBackupEnabled(backupConfig)) {
+    return "none";
+  }
+
+  const completed = backupConfig?.last_completed_automatic_backup
+    ? new Date(backupConfig.last_completed_automatic_backup).getTime()
+    : 0;
+
+  const attempted = backupConfig?.last_attempted_automatic_backup
+    ? new Date(backupConfig.last_attempted_automatic_backup).getTime()
+    : 0;
+
+  if (!completed && !attempted) {
+    return "none";
+  }
+
+  if (attempted > completed) {
+    return "failed";
+  }
+
+  const next =
+    backupConfig?.next_automatic_backup &&
+    new Date(backupConfig.next_automatic_backup).getTime();
+
+  if (next && next < Date.now() - BACKUP_OVERDUE_MARGIN_MS) {
+    return "old";
+  }
+
+  return "success";
+};
 
 export const isNetworkMountAgent = (agentId: string) => {
   const [domain, name] = agentId.split(".");
@@ -357,7 +415,7 @@ export type BackupType = "automatic" | "manual" | "app_update";
 
 const BACKUP_TYPE_ORDER: BackupType[] = ["automatic", "app_update", "manual"];
 
-export const getBackupTypes = memoize((isHassio: boolean) =>
+export const getBackupTypes = memoizeOne((isHassio: boolean) =>
   isHassio
     ? BACKUP_TYPE_ORDER
     : BACKUP_TYPE_ORDER.filter((type) => type !== "app_update")

@@ -12,12 +12,11 @@ import { customElement, property, query, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import { fireEvent } from "../common/dom/fire_event";
-import { toggleAttribute } from "../common/dom/toggle_attribute";
 import { stringCompare } from "../common/string/compare";
 import { computeRTL } from "../common/util/compute_rtl";
 import { throttle } from "../common/util/throttle";
 import { subscribeFrontendUserData } from "../data/frontend";
-import type { ActionHandlerDetail } from "../data/lovelace/action_handler";
+import type { ActionHandlerEvent } from "../data/lovelace/action_handler";
 import {
   FIXED_PANELS,
   getDefaultPanelUrlPath,
@@ -296,7 +295,7 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
   protected updated(changedProps: PropertyValues<this>) {
     super.updated(changedProps);
     if (changedProps.has("alwaysExpand")) {
-      toggleAttribute(this, "expanded", this.alwaysExpand);
+      this.toggleAttribute("expanded", this.alwaysExpand);
     }
     if (!changedProps.has("hass")) {
       return;
@@ -339,17 +338,19 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
         hasHold: true,
       })}
     >
-      ${!this.narrow
-        ? html`
-            <ha-icon-button
-              .label=${this.hass.localize("ui.sidebar.sidebar_toggle")}
-              .path=${this.hass.dockedSidebar === "docked"
-                ? mdiMenuOpen
-                : mdiMenu}
-              @action=${this._toggleSidebar}
-            ></ha-icon-button>
-          `
-        : nothing}
+      ${
+        !this.narrow
+          ? html`
+              <ha-icon-button
+                .label=${this.hass.localize("ui.sidebar.sidebar_toggle")}
+                .path=${
+                  this.hass.dockedSidebar === "docked" ? mdiMenuOpen : mdiMenu
+                }
+                @action=${this._toggleSidebar}
+              ></ha-icon-button>
+            `
+          : nothing
+      }
       <div class="title">${this.sidebarTitle}</div>
     </div>`;
   }
@@ -452,14 +453,18 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
         id="sidebar-panel-${urlPath}"
         class=${classMap({ selected: isSelected })}
       >
-        ${iconPath
-          ? html`<ha-svg-icon slot="start" .path=${iconPath}></ha-svg-icon>`
-          : html`<ha-icon slot="start" .icon=${icon}></ha-icon>`}
+        ${
+          iconPath
+            ? html`<ha-svg-icon slot="start" .path=${iconPath}></ha-svg-icon>`
+            : html`<ha-icon slot="start" .icon=${icon}></ha-icon>`
+        }
         <span class="item-text" slot="headline">${title}</span>
       </ha-list-item-button>
-      ${!this.alwaysExpand && title
-        ? this._renderToolTip(`sidebar-panel-${urlPath}`, title)
-        : nothing}
+      ${
+        !this.alwaysExpand && title
+          ? this._renderToolTip(`sidebar-panel-${urlPath}`, title)
+          : nothing
+      }
     `;
   }
 
@@ -479,30 +484,36 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
         id="sidebar-config"
       >
         <ha-svg-icon slot="start" .path=${mdiCog}></ha-svg-icon>
-        ${this._updatesCount > 0 || this._issuesCount > 0
-          ? html`
-              <span class="badge" slot="start">
-                ${this._updatesCount + this._issuesCount}
-              </span>
-            `
-          : nothing}
+        ${
+          this._updatesCount > 0 || this._issuesCount > 0
+            ? html`
+                <span class="badge" slot="start">
+                  ${this._updatesCount + this._issuesCount}
+                </span>
+              `
+            : nothing
+        }
         <span class="item-text" slot="headline"
           >${this.hass.localize("panel.config")}</span
         >
-        ${this._updatesCount > 0 || this._issuesCount > 0
-          ? html`
-              <span class="badge" slot="end"
-                >${this._updatesCount + this._issuesCount}</span
-              >
-            `
-          : nothing}
+        ${
+          this._updatesCount > 0 || this._issuesCount > 0
+            ? html`
+                <span class="badge" slot="end"
+                  >${this._updatesCount + this._issuesCount}</span
+                >
+              `
+            : nothing
+        }
       </ha-list-item-button>
-      ${!this.alwaysExpand
-        ? this._renderToolTip(
-            "sidebar-config",
-            this.hass.localize("panel.config")
-          )
-        : nothing}
+      ${
+        !this.alwaysExpand
+          ? this._renderToolTip(
+              "sidebar-config",
+              this.hass.localize("panel.config")
+            )
+          : nothing
+      }
     `;
   }
 
@@ -518,24 +529,30 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
         id="sidebar-notifications"
       >
         <ha-svg-icon slot="start" .path=${mdiBell}></ha-svg-icon>
-        ${notificationCount > 0
-          ? html`
-              <span class="badge" slot="start"> ${notificationCount} </span>
-            `
-          : nothing}
+        ${
+          notificationCount > 0
+            ? html`
+                <span class="badge" slot="start"> ${notificationCount} </span>
+              `
+            : nothing
+        }
         <span class="item-text" slot="headline"
           >${this.hass.localize("ui.notification_drawer.title")}</span
         >
-        ${notificationCount > 0
-          ? html`<span class="badge" slot="end">${notificationCount}</span>`
-          : nothing}
+        ${
+          notificationCount > 0
+            ? html`<span class="badge" slot="end">${notificationCount}</span>`
+            : nothing
+        }
       </ha-list-item-button>
-      ${!this.alwaysExpand
-        ? this._renderToolTip(
-            "sidebar-notifications",
-            this.hass.localize("ui.notification_drawer.title")
-          )
-        : nothing}
+      ${
+        !this.alwaysExpand
+          ? this._renderToolTip(
+              "sidebar-notifications",
+              this.hass.localize("ui.notification_drawer.title")
+            )
+          : nothing
+      }
     `;
   }
 
@@ -561,9 +578,11 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
           >${this.hass.user ? this.hass.user.name : nothing}</span
         >
       </ha-list-item-button>
-      ${!this.alwaysExpand && this.hass.user
-        ? this._renderToolTip("sidebar-profile", this.hass.user.name)
-        : nothing}
+      ${
+        !this.alwaysExpand && this.hass.user
+          ? this._renderToolTip("sidebar-profile", this.hass.user.name)
+          : nothing
+      }
     `;
   }
 
@@ -581,12 +600,14 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
           ${this.hass.localize("ui.sidebar.external_app_configuration")}
         </span>
       </ha-list-item-button>
-      ${!this.alwaysExpand
-        ? this._renderToolTip(
-            "sidebar-external-config",
-            this.hass.localize("ui.sidebar.external_app_configuration")
-          )
-        : nothing}
+      ${
+        !this.alwaysExpand
+          ? this._renderToolTip(
+              "sidebar-external-config",
+              this.hass.localize("ui.sidebar.external_app_configuration")
+            )
+          : nothing
+      }
     `;
   }
 
@@ -612,7 +633,7 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
     });
   }
 
-  private _handleAction(ev: CustomEvent<ActionHandlerDetail>) {
+  private _handleAction(ev: ActionHandlerEvent) {
     if (ev.detail.action !== "hold") {
       return;
     }
@@ -624,7 +645,7 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
     fireEvent(this, "hass-show-notifications");
   }
 
-  private _toggleSidebar(ev: CustomEvent) {
+  private _toggleSidebar(ev: ActionHandlerEvent) {
     if (ev.detail.action !== "tap") {
       return;
     }
@@ -642,9 +663,8 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          -ms-user-select: none;
-          -webkit-user-select: none;
-          -moz-user-select: none;
+          overscroll-behavior: contain;
+          user-select: none;
           background-color: var(--sidebar-background-color);
           width: 100%;
           box-sizing: border-box;
@@ -874,7 +894,6 @@ class HaSidebar extends SubscribeMixin(ScrollableFadeMixin(LitElement)) {
         }
 
         .menu ha-icon-button {
-          -webkit-transform: scaleX(var(--scale-direction));
           transform: scaleX(var(--scale-direction));
         }
 

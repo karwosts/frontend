@@ -12,7 +12,6 @@ import { computeStateDomain } from "../../../common/entity/compute_state_domain"
 import { stateActive } from "../../../common/entity/state_active";
 import { stateColorCss } from "../../../common/entity/state_color";
 import "../../../components/ha-badge";
-import "../../../components/ha-ripple";
 import "../../../components/ha-state-icon";
 import "../../../components/ha-svg-icon";
 import { cameraUrlWithWidthHeight } from "../../../data/camera";
@@ -216,17 +215,19 @@ export class HuiEntityBadge extends LitElement implements LovelaceBadge {
         style=${styleMap(style)}
         class=${classMap({ active })}
       >
-        ${showIcon
-          ? imageUrl
-            ? html`<img slot="icon" src=${imageUrl} aria-hidden />`
-            : html`
-                <ha-state-icon
-                  slot="icon"
-                  .stateObj=${stateObj}
-                  .icon=${this._config.icon}
-                ></ha-state-icon>
-              `
-          : nothing}
+        ${
+          showIcon
+            ? imageUrl
+              ? html`<img slot="icon" src=${imageUrl} aria-hidden />`
+              : html`
+                  <ha-state-icon
+                    slot="icon"
+                    .stateObj=${stateObj}
+                    .icon=${this._config.icon}
+                  ></ha-state-icon>
+                `
+            : nothing
+        }
         ${content}
       </ha-badge>
     `;

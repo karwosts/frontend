@@ -5,12 +5,12 @@ import { html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators";
 import { join } from "lit/directives/join";
 import { ensureArray } from "../common/array/ensure-array";
+import type { EntityNameType } from "../common/entity/compute_entity_name_display";
 import { computeStateDomain } from "../common/entity/compute_state_domain";
 import {
   STRINGS_SEPARATOR_DOT,
   TIMESTAMP_STATE_DOMAINS,
 } from "../common/const";
-import "../components/ha-relative-time";
 import { UNAVAILABLE, UNKNOWN } from "../data/entity/entity";
 import {
   SENSOR_TIMESTAMP_DEVICE_CLASSES,
@@ -56,6 +56,13 @@ export const DEFAULT_STATE_CONTENT_DOMAINS: Record<string, StateContent> = {
   update: "install_status",
   valve: ["state", "current_position"],
 };
+
+const NAME_CONTENT_TYPES = new Map<string, EntityNameType>([
+  ["device_name", "device"],
+  ["parent_device_name", "parent_device"],
+  ["area_name", "area"],
+  ["floor_name", "floor"],
+]);
 
 const TIMESTAMP_STATE_PROPS = ["last_updated", "last_changed"];
 
@@ -118,6 +125,9 @@ class StateDisplay extends LitElement {
 
   @property({ attribute: false }) public timeFormat?: string;
 
+  @property({ type: Boolean, attribute: "timestamp-tooltip" })
+  public timestampTooltip = false;
+
   @property({ type: Boolean, attribute: "dash-unavailable" })
   public dashUnavailable?: boolean;
 
@@ -168,11 +178,13 @@ class StateDisplay extends LitElement {
           <hui-timestamp-display
             .hass=${this.hass}
             .ts=${new Date(stateObj.state)}
-            .format=${this.timeFormat ||
-            (this.stateObj.attributes.device_class ===
-            SENSOR_DEVICE_CLASS_UPTIME
-              ? "total"
-              : "relative")}
+            .format=${
+              this.timeFormat ||
+              (this.stateObj.attributes.device_class ===
+              SENSOR_DEVICE_CLASS_UPTIME
+                ? "total"
+                : "relative")
+            }
             capitalize
           ></hui-timestamp-display>
         `;
@@ -183,14 +195,14 @@ class StateDisplay extends LitElement {
     if (content === "name" && this.name) {
       return html`${this.name}`;
     }
-
-    if (
-      content === "device_name" ||
-      content === "area_name" ||
-      content === "floor_name"
-    ) {
-      const type = content.replace("_name", "") as "device" | "area" | "floor";
-      return this.hass.formatEntityName(stateObj, { type }) || undefined;
+    if (content === "entity-id") {
+      return stateObj.entity_id;
+    }
+    const nameType = NAME_CONTENT_TYPES.get(content);
+    if (nameType) {
+      return (
+        this.hass.formatEntityName(stateObj, { type: nameType }) || undefined
+      );
     }
 
     let relativeDateTime: string | number | undefined;
@@ -212,6 +224,7 @@ class StateDisplay extends LitElement {
         .ts=${new Date(relativeDateTime)}
         .format=${this.timeFormat}
         capitalize
+        .tooltip=${this.timestampTooltip}
       ></hui-timestamp-display>`;
     }
 

@@ -4,10 +4,13 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
 import { fireEvent } from "../../../../../common/dom/fire_event";
+import { afterNextRender } from "../../../../../common/util/render-status";
 import "../../../../../components/ha-checkbox";
+import { getSelectorFallbackValue } from "../../../../../components/ha-form/get-selector-fallback-value";
 import "../../../../../components/ha-selector/ha-selector";
 import "../../../../../components/ha-settings-row";
 import type { PlatformTrigger } from "../../../../../data/automation";
+import { TRIGGER_ROW_CONFIG_KEYS } from "../../../../../data/automation";
 import type { IntegrationManifest } from "../../../../../data/integration";
 import { fetchIntegrationManifest } from "../../../../../data/integration";
 import type { TargetSelector } from "../../../../../data/selector";
@@ -26,15 +29,11 @@ const showOptionalToggle = (field: TriggerDescription["fields"][string]) =>
   !("boolean" in field.selector && field.default);
 
 const DEFAULT_KEYS: (keyof PlatformTrigger)[] = [
+  ...TRIGGER_ROW_CONFIG_KEYS,
   "trigger",
   "target",
-  "alias",
-  "note",
-  "id",
-  "variables",
-  "enabled",
   "options",
-] as const;
+];
 
 @customElement("ha-automation-trigger-platform")
 export class HaPlatformTrigger extends LitElement {
@@ -91,8 +90,7 @@ export class HaPlatformTrigger extends LitElement {
     }
 
     const oldValue = changedProperties.get("trigger") as
-      | undefined
-      | this["trigger"];
+      undefined | this["trigger"];
 
     // Fetch the manifest if we have a trigger selected and the trigger domain changed.
     // If no trigger is selected, clear the manifest.
@@ -158,7 +156,8 @@ export class HaPlatformTrigger extends LitElement {
     }
 
     if (oldValue?.target !== this.trigger?.target) {
-      this._updateResolvedTargetEntityCount(this.trigger?.target);
+      this._updateTargetEntityCount();
+      this._setDefaultBehavior();
     }
   }
 
@@ -181,67 +180,67 @@ export class HaPlatformTrigger extends LitElement {
       )
     );
 
+    const documentationLink = this._manifest?.is_built_in
+      ? documentationUrl(this.hass, `/triggers/${this.trigger.trigger}`)
+      : this._manifest?.documentation;
+
     return html`
       <div class="description">
         ${description ? html`<p>${description}</p>` : nothing}
-        ${this._manifest
-          ? html`<a
-              href=${this._manifest.is_built_in
-                ? documentationUrl(
-                    this.hass,
-                    `/integrations/${this._manifest.domain}`
-                  )
-                : this._manifest.documentation}
-              title=${this.hass.localize(
-                "ui.components.service-control.integration_doc"
-              )}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <ha-icon-button
-                .path=${mdiHelpCircleOutline}
-                class="help-icon"
-                .label=${this.hass.localize(
+        ${
+          documentationLink
+            ? html`<a
+                href=${documentationLink}
+                title=${this.hass.localize(
                   "ui.components.service-control.integration_doc"
                 )}
-              ></ha-icon-button>
-            </a>`
-          : nothing}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ha-icon-button
+                  .path=${mdiHelpCircleOutline}
+                  class="help-icon"
+                  .label=${this.hass.localize(
+                    "ui.components.service-control.integration_doc"
+                  )}
+                ></ha-icon-button>
+              </a>`
+            : nothing
+        }
       </div>
-      ${triggerDesc && "target" in triggerDesc
-        ? html`<ha-settings-row narrow>
-            <span slot="heading"
-              >${this.hass.localize(
-                "ui.components.service-control.target"
-              )}</span
-            ><ha-selector
+      ${
+        triggerDesc && "target" in triggerDesc
+          ? html`<ha-selector
+              class="target-selector"
               .hass=${this.hass}
               .selector=${this._targetSelector(triggerDesc.target)}
               .disabled=${this.disabled}
               @value-changed=${this._targetChanged}
               .value=${this.trigger?.target}
-            ></ha-selector
-          ></ha-settings-row>`
-        : nothing}
-      ${shouldRenderDataYaml
-        ? html`<ha-yaml-editor
-            .label=${this.hass.localize(
-              "ui.components.service-control.action_data"
-            )}
-            .name=${"data"}
-            .readOnly=${this.disabled}
-            .defaultValue=${this.trigger?.options}
-            @value-changed=${this._dataChanged}
-          ></ha-yaml-editor>`
-        : Object.entries(triggerDesc.fields).map(([fieldName, dataField]) =>
-            this._renderField(
-              fieldName,
-              dataField,
-              hasOptional,
-              domain,
-              triggerName
+            ></ha-selector>`
+          : nothing
+      }
+      ${
+        shouldRenderDataYaml
+          ? html`<ha-yaml-editor
+              .label=${this.hass.localize(
+                "ui.components.service-control.action_data"
+              )}
+              .name=${"data"}
+              .readOnly=${this.disabled}
+              .defaultValue=${this.trigger?.options}
+              @value-changed=${this._dataChanged}
+            ></ha-yaml-editor>`
+          : Object.entries(triggerDesc.fields).map(([fieldName, dataField]) =>
+              this._renderField(
+                fieldName,
+                dataField,
+                hasOptional,
+                domain,
+                triggerName
+              )
             )
-          )}
+      }
     `;
   }
 
@@ -280,49 +279,59 @@ export class HaPlatformTrigger extends LitElement {
     );
 
     return html`<ha-settings-row narrow>
-      ${!showOptional
-        ? hasOptional
-          ? html`<div slot="prefix" class="checkbox-spacer"></div>`
-          : nothing
-        : html`<ha-checkbox
-            .key=${fieldName}
-            .checked=${this._checkedKeys.has(fieldName) ||
-            (this.trigger?.options &&
-              this.trigger.options[fieldName] !== undefined)}
-            .disabled=${this.disabled}
-            @change=${this._checkboxChanged}
-            slot="prefix"
-          ></ha-checkbox>`}
+      ${
+        !showOptional
+          ? hasOptional
+            ? html`<div slot="prefix" class="checkbox-spacer"></div>`
+            : nothing
+          : html`<ha-checkbox
+              .key=${fieldName}
+              .checked=${
+                this._checkedKeys.has(fieldName) ||
+                (this.trigger?.options &&
+                  this.trigger.options[fieldName] !== undefined)
+              }
+              .disabled=${this.disabled}
+              @change=${this._checkboxChanged}
+              slot="prefix"
+            ></ha-checkbox>`
+      }
       <span
         slot="heading"
         class=${showOptional ? "clickable" : ""}
         @click=${showOptional ? this._toggleCheckbox : undefined}
-        >${this.hass.localize(
-          `component.${domain}.triggers.${triggerName}.fields.${fieldName}.name`
-        ) || fieldName}</span
+        >${
+          this.hass.localize(
+            `component.${domain}.triggers.${triggerName}.fields.${fieldName}.name`
+          ) || fieldName
+        }</span
       >
-      ${description
-        ? html`<span
-            class=${showOptional ? "clickable" : ""}
-            @click=${showOptional ? this._toggleCheckbox : undefined}
-            slot="description"
-            >${description}</span
-          >`
-        : nothing}
+      ${
+        description
+          ? html`<span
+              class=${showOptional ? "clickable" : ""}
+              @click=${showOptional ? this._toggleCheckbox : undefined}
+              slot="description"
+              >${description}</span
+            >`
+          : nothing
+      }
       <ha-selector
-        .disabled=${this.disabled ||
-        (showOptional &&
-          !this._checkedKeys.has(fieldName) &&
-          (!this.trigger?.options ||
-            this.trigger.options[fieldName] === undefined))}
+        .disabled=${
+          this.disabled ||
+          (showOptional &&
+            !this._checkedKeys.has(fieldName) &&
+            (!this.trigger?.options ||
+              this.trigger.options[fieldName] === undefined))
+        }
         .hass=${this.hass}
         .selector=${selector}
         .context=${this._generateContext(dataField)}
         .key=${fieldName}
         @value-changed=${this._dataChanged}
-        .value=${this.trigger?.options
-          ? this.trigger.options[fieldName]
-          : undefined}
+        .value=${
+          this.trigger?.options ? this.trigger.options[fieldName] : undefined
+        }
         .placeholder=${dataField.default}
         .localizeValue=${this._localizeValueCallback}
         .required=${dataField.required}
@@ -413,20 +422,8 @@ export class HaPlatformTrigger extends LitElement {
         Object.entries(this.description).find(([k, _value]) => k === key)?.[1];
       let defaultValue = field?.default;
 
-      if (
-        defaultValue == null &&
-        field?.selector &&
-        "constant" in field.selector
-      ) {
-        defaultValue = field.selector.constant?.value;
-      }
-
-      if (
-        defaultValue == null &&
-        field?.selector &&
-        "boolean" in field.selector
-      ) {
-        defaultValue = false;
+      if (defaultValue == null && field?.selector) {
+        defaultValue = getSelectorFallbackValue(field.selector);
       }
 
       if (defaultValue != null) {
@@ -471,39 +468,51 @@ export class HaPlatformTrigger extends LitElement {
     }
   }
 
-  private _updateResolvedTargetEntityCount(target: PlatformTrigger["target"]) {
+  private _updateTargetEntityCount() {
+    const target = this.trigger?.target;
     this._resolvedTargetEntityCount = getTargetEntityCount(target);
+  }
 
-    const behaviorFieldEntry = Object.entries(
-      this.description?.fields ?? {}
-    ).find(
-      ([, field]) => field.selector && "automation_behavior" in field.selector
-    );
-
-    if (!behaviorFieldEntry) {
-      return;
-    }
-
-    const [behaviorFieldName, behaviorField] = behaviorFieldEntry;
-
-    if (
-      target &&
-      this._resolvedTargetEntityCount > 1 &&
-      this.trigger.options?.[behaviorFieldName] === undefined
-    ) {
-      const behaviorDefault = behaviorField.default;
-      if (behaviorDefault !== undefined) {
-        fireEvent(this, "value-changed", {
-          value: {
-            ...this.trigger,
-            options: {
-              ...this.trigger.options,
-              [behaviorFieldName]: behaviorDefault,
-            },
-          },
-        });
+  private _setDefaultBehavior() {
+    // set default behavior after next render to prevent race conditions with the initial render
+    afterNextRender(() => {
+      if (!this.isConnected) {
+        return;
       }
-    }
+
+      const behaviorFieldEntry = Object.entries(
+        this.description?.fields ?? {}
+      ).find(
+        ([, field]) => field.selector && "automation_behavior" in field.selector
+      );
+
+      if (
+        !behaviorFieldEntry ||
+        this._resolvedTargetEntityCount === undefined
+      ) {
+        return;
+      }
+
+      const [behaviorFieldName, behaviorField] = behaviorFieldEntry;
+      if (
+        this.trigger?.target &&
+        this._resolvedTargetEntityCount > 1 &&
+        this.trigger.options?.[behaviorFieldName] === undefined
+      ) {
+        const behaviorDefault = behaviorField.default;
+        if (behaviorDefault !== undefined) {
+          fireEvent(this, "value-changed", {
+            value: {
+              ...this.trigger,
+              options: {
+                ...this.trigger.options,
+                [behaviorFieldName]: behaviorDefault,
+              },
+            },
+          });
+        }
+      }
+    });
   }
 
   static styles = css`
@@ -530,6 +539,14 @@ export class HaPlatformTrigger extends LitElement {
     ha-yaml-editor {
       display: block;
       margin: 0 var(--ha-space-4);
+    }
+    ha-selector.target-selector {
+      display: block;
+      padding: var(--ha-space-2) var(--ha-space-4);
+      border-top: var(
+        --service-control-items-border-top,
+        1px solid var(--divider-color)
+      );
     }
     ha-yaml-editor {
       padding: var(--ha-space-4) 0;

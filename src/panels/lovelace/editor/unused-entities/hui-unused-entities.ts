@@ -52,28 +52,32 @@ export class HuiUnusedEntities extends LitElement {
 
     return html`
       <div class="container">
-        ${!this.narrow
-          ? html`
-              <ha-card
-                header=${this.hass.localize(
-                  "ui.panel.lovelace.unused_entities.title"
-                )}
-              >
-                <div class="card-content">
-                  ${this.hass.localize(
-                    "ui.panel.lovelace.unused_entities.available_entities"
+        ${
+          !this.narrow
+            ? html`
+                <ha-card
+                  header=${this.hass.localize(
+                    "ui.panel.lovelace.unused_entities.title"
                   )}
-                  ${this.lovelace.mode === "storage"
-                    ? html`
-                        <br />${this.hass.localize(
-                          "ui.panel.lovelace.unused_entities.select_to_add"
-                        )}
-                      `
-                    : ""}
-                </div>
-              </ha-card>
-            `
-          : ""}
+                >
+                  <div class="card-content">
+                    ${this.hass.localize(
+                      "ui.panel.lovelace.unused_entities.available_entities"
+                    )}
+                    ${
+                      this.lovelace.mode === "storage"
+                        ? html`
+                            <br />${this.hass.localize(
+                              "ui.panel.lovelace.unused_entities.select_to_add"
+                            )}
+                          `
+                        : ""
+                    }
+                  </div>
+                </ha-card>
+              `
+            : ""
+        }
         <hui-entity-picker-table
           .hass=${this.hass}
           .narrow=${this.narrow}
@@ -115,7 +119,7 @@ export class HuiUnusedEntities extends LitElement {
       showSuggestCardDialog(this, {
         lovelaceConfig: this.lovelace.config!,
         saveConfig: this.lovelace.saveConfig,
-        path: [0],
+        path: ["views", 0],
         entities: this._selectedEntities,
         cardConfig,
         sectionConfig,
@@ -129,7 +133,7 @@ export class HuiUnusedEntities extends LitElement {
         showSuggestCardDialog(this, {
           lovelaceConfig: this.lovelace.config!,
           saveConfig: this.lovelace.saveConfig,
-          path: [viewIndex],
+          path: ["views", viewIndex],
           entities: this._selectedEntities,
           cardConfig,
           sectionConfig,

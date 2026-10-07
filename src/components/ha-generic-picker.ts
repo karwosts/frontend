@@ -1,6 +1,7 @@
 import "@home-assistant/webawesome/dist/components/popover/popover";
+import type WaPopover from "@home-assistant/webawesome/dist/components/popover/popover";
 import type { RenderItemFunction } from "@lit-labs/virtualizer/virtualize";
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import { mdiPlaylistPlus } from "@mdi/js";
 import {
   css,
@@ -12,7 +13,9 @@ import {
 } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import { ifDefined } from "lit/directives/if-defined";
+import { styleMap } from "lit/directives/style-map";
 import { tinykeys } from "tinykeys";
+import { consume } from "../common/decorators/consume";
 import { fireEvent } from "../common/dom/fire_event";
 import { configContext } from "../data/context";
 import { PickerMixin } from "../mixins/picker-mixin";
@@ -111,9 +114,16 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
 
   @property({ type: Boolean, attribute: "no-sort" }) public noSort = false;
 
+  // Skip the "unknown value" highlight and note for a value that is not in the
+  // list but that the value renderer presents on its own.
+  @property({ type: Boolean, attribute: "no-unknown-state" })
+  public noUnknownState = false;
+
   @query(".container") private _containerElement?: HTMLDivElement;
 
   @query("ha-picker-combo-box") private _comboBox?: HaPickerComboBox;
+
+  @query("wa-popover") private _popover?: WaPopover;
 
   @state()
   @consume({ context: configContext, subscribe: true })
@@ -124,6 +134,8 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
   @state() private _pickerWrapperOpen = false;
 
   @state() private _popoverWidth = 0;
+
+  @state() private _popoverMinHeight = 0;
 
   @state() private _openedNarrow = false;
 
@@ -148,7 +160,10 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
   private _unsubscribeTinyKeys?: () => void;
 
   protected willUpdate(changedProperties: PropertyValues<this>) {
-    if (changedProperties.has("value")) {
+    if (
+      changedProperties.has("value") ||
+      changedProperties.has("noUnknownState")
+    ) {
       this._setUnknownValue();
     }
   }
@@ -167,96 +182,107 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
     const label = this.useTopLabel && this.value ? undefined : this.label;
 
     return html`<div class="container">
-        ${this.useTopLabel && this.label
-          ? html`<label ?disabled=${this.disabled}>${this.label}</label>`
-          : nothing}
+        ${
+          this.useTopLabel && this.label
+            ? html`<label ?disabled=${this.disabled}>${this.label}</label>`
+            : nothing
+        }
         <div id="picker">
           <slot name="field">
-            ${this.addButtonLabel && !this.value
-              ? html`<ha-button
-                  size="s"
-                  appearance="filled"
-                  @click=${this.open}
-                  .disabled=${this.disabled}
-                >
-                  <ha-svg-icon
-                    .path=${mdiPlaylistPlus}
-                    slot="start"
-                  ></ha-svg-icon>
-                  ${this.addButtonLabel}
-                </ha-button>`
-              : html`<ha-picker-field
-                  type="button"
-                  class=${this._opened ? "opened" : ""}
-                  compact
-                  .unknown=${this._unknownValue}
-                  .unknownItemText=${this.unknownItemText}
-                  aria-label=${ifDefined(this.label)}
-                  @click=${this.open}
-                  @clear=${this._clear}
-                  .icon=${this.icon}
-                  .image=${this.image}
-                  .label=${label}
-                  .placeholder=${this.placeholder}
-                  .value=${this.value}
-                  .valueRenderer=${this.valueRenderer}
-                  .required=${this.required}
-                  .disabled=${this.disabled}
-                  .invalid=${this.invalid}
-                  .hideClearIcon=${this.hideClearIcon}
-                >
-                  <slot name="start"></slot>
-                </ha-picker-field>`}
+            ${
+              this.addButtonLabel && !this.value
+                ? html`<ha-button
+                    size="s"
+                    appearance="filled"
+                    @click=${this.open}
+                    .disabled=${this.disabled}
+                  >
+                    <ha-svg-icon
+                      .path=${mdiPlaylistPlus}
+                      slot="start"
+                    ></ha-svg-icon>
+                    ${this.addButtonLabel}
+                  </ha-button>`
+                : html`<ha-picker-field
+                    type="button"
+                    class=${this._opened ? "opened" : ""}
+                    compact
+                    .unknown=${this._unknownValue}
+                    .unknownItemText=${this.unknownItemText}
+                    aria-label=${ifDefined(this.label)}
+                    @click=${this.open}
+                    @clear=${this._clear}
+                    .icon=${this.icon}
+                    .image=${this.image}
+                    .label=${label}
+                    .placeholder=${this.placeholder}
+                    .value=${this.value}
+                    .valueRenderer=${this.valueRenderer}
+                    .required=${this.required}
+                    .disabled=${this.disabled}
+                    .invalid=${this.invalid}
+                    .hideClearIcon=${this.hideClearIcon}
+                  >
+                    <slot name="start"></slot>
+                  </ha-picker-field>`
+            }
           </slot>
         </div>
-        ${this._pickerWrapperOpen || this._opened
-          ? this._openedNarrow
-            ? html`
-                <ha-bottom-sheet
-                  flexcontent
-                  .open=${this._pickerWrapperOpen}
-                  @wa-after-show=${this._dialogOpened}
-                  @closed=${this._hidePicker}
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label=${this.label || "Select option"}
-                >
-                  ${this._renderComboBox(true)}
-                </ha-bottom-sheet>
-              `
-            : html`
-                <wa-popover
-                  .open=${this._pickerWrapperOpen}
-                  style="--body-width: ${this._popoverWidth}px;"
-                  without-arrow
-                  distance="-4"
-                  .placement=${this.popoverPlacement}
-                  .for=${this.popoverAnchor ? null : "picker"}
-                  .anchor=${this.popoverAnchor ?? null}
-                  auto-size="vertical"
-                  auto-size-padding="16"
-                  @wa-after-show=${this._dialogOpened}
-                  @wa-after-hide=${this._hidePicker}
-                  trap-focus
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label=${this.label || "Select option"}
-                >
-                  ${this._renderComboBox()}
-                </wa-popover>
-              `
-          : nothing}
+        ${
+          this._pickerWrapperOpen || this._opened
+            ? this._openedNarrow
+              ? html`
+                  <ha-bottom-sheet
+                    flexcontent
+                    .open=${this._pickerWrapperOpen}
+                    @wa-after-show=${this._dialogOpened}
+                    @closed=${this._hidePicker}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label=${this.label || "Select option"}
+                  >
+                    ${this._renderComboBox(true)}
+                  </ha-bottom-sheet>
+                `
+              : html`
+                  <wa-popover
+                    .open=${this._pickerWrapperOpen}
+                    style=${styleMap({
+                      "--body-width": `${this._popoverWidth}px`,
+                      "--body-min-height": `${this._popoverMinHeight}px`,
+                    })}
+                    without-arrow
+                    distance="0"
+                    .placement=${this.popoverPlacement}
+                    .for=${this.popoverAnchor ? null : "picker"}
+                    .anchor=${this.popoverAnchor ?? null}
+                    auto-size="vertical"
+                    auto-size-padding="16"
+                    @wa-after-show=${this._dialogOpened}
+                    @wa-after-hide=${this._hidePicker}
+                    trap-focus
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label=${this.label || "Select option"}
+                  >
+                    ${this._renderComboBox()}
+                  </wa-popover>
+                `
+            : nothing
+        }
       </div>
       ${this._renderHelper()}`;
   }
 
   private _renderComboBox(dialogMode = false) {
-    if (!this._opened) {
+    // The list sizes the popover, so it is rendered as it opens, not once shown.
+    if (!this._pickerWrapperOpen && !this._opened) {
       return nothing;
     }
     return html`
       <ha-picker-combo-box
         id="combo-box"
+        .shown=${this._opened}
         .allowCustomValue=${this.allowCustomValue}
         .label=${this.searchLabel}
         .value=${this._selectedValue ?? this.value}
@@ -281,6 +307,7 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
   private _setUnknownValue = () => {
     const items = this.getItems();
     if (
+      this.noUnknownState ||
       this.allowCustomValue ||
       this.value === undefined ||
       this.value === null ||
@@ -298,14 +325,21 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
 
   private _renderHelper() {
     const showError = this.invalid && this.errorMessage;
-    const showHelper = !showError && this.helper;
 
-    if (!showError && !showHelper) {
+    if (!showError && !this.helper) {
       return nothing;
     }
 
-    return html`<ha-input-helper-text .disabled=${this.disabled}>
-      ${showError ? this.errorMessage : this.helper}
+    return html`<ha-input-helper-text>
+      ${
+        showError
+          ? html`<span class="error">${this.errorMessage}</span> ${
+                this.helper
+                  ? html`<span class="helper">${this.helper}</span>`
+                  : nothing
+              }`
+          : this.helper
+      }
     </ha-input-helper-text>`;
   }
 
@@ -317,6 +351,8 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
 
   private _dialogOpened = () => {
     this._opened = true;
+    // Filtering must not shrink the popover under the size it opened with.
+    this._popoverMinHeight = this._popover?.body.offsetHeight ?? 0;
     fireEvent(this, "picker-opened");
     requestAnimationFrame(() => {
       // Set initial field value if needed
@@ -325,7 +361,7 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
         this._initialFieldValue = undefined;
       }
       if (
-        this._hassConfig?.auth.external &&
+        this._hassConfig?.auth?.external &&
         isIosApp(this._hassConfig.auth.external)
       ) {
         this._hassConfig.auth.external.fireMessage({
@@ -350,6 +386,7 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
 
     this._opened = false;
     this._pickerWrapperOpen = false;
+    this._popoverMinHeight = 0;
     this._selectedValue = undefined;
     this._unsubscribeTinyKeys?.();
     fireEvent(this, "picker-closed");
@@ -442,9 +479,18 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
         :host([invalid]) ha-input-helper-text {
           color: var(--mdc-theme-error, var(--error-color, #b00020));
         }
+        ha-input-helper-text .error,
+        ha-input-helper-text .helper {
+          display: block;
+        }
+        ha-input-helper-text .helper {
+          color: var(--secondary-text-color);
+        }
 
         wa-popover {
           --wa-space-l: 0;
+          /* The surface of a dropdown menu, not of a dialog. */
+          --wa-panel-border-radius: var(--ha-border-radius-md);
         }
 
         wa-popover::part(dialog)::backdrop {
@@ -457,14 +503,18 @@ export class HaGenericPicker extends PickerMixin(LitElement) {
             --ha-generic-picker-max-width,
             var(--ha-generic-picker-width, max(var(--body-width), 250px))
           );
-          max-height: 500px;
-          height: 70vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: var(--ha-box-shadow-m);
+          height: fit-content;
+          min-height: var(--body-min-height, 0);
+          max-height: min(70vh, 500px);
           overflow: hidden;
         }
 
         @media (max-height: 1000px) {
           wa-popover::part(body) {
-            max-height: 400px;
+            max-height: min(70vh, 400px);
           }
         }
 

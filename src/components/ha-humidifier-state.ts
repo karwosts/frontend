@@ -1,8 +1,8 @@
-import { consume } from "@lit/context";
 import type { ContextType } from "@lit/context";
 import type { TemplateResult } from "lit";
 import { css, html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../common/decorators/consume";
 import { consumeLocalize } from "../common/decorators/consume-context-entry";
 import type { LocalizeFunc } from "../common/translations/localize";
 import { formattersContext } from "../data/context";
@@ -25,27 +25,33 @@ class HaHumidifierState extends LitElement {
       this.stateObj.state === UNAVAILABLE || this.stateObj.state === UNKNOWN;
 
     return html`<div class="target">
-        ${!noValue
-          ? html`<span class="state-label">
-                ${this._localizeState()}
-                ${this.stateObj.attributes.mode
-                  ? html`-
-                    ${this._formatters!.formatEntityAttributeValue(
-                      this.stateObj,
-                      "mode"
-                    )}`
-                  : ""}
-              </span>
-              <div class="unit">${this._computeTarget()}</div>`
-          : this._localizeState()}
+        ${
+          !noValue
+            ? html`<span class="state-label">
+                  ${this._localizeState()}
+                  ${
+                    this.stateObj.attributes.mode
+                      ? html`-
+                        ${this._formatters!.formatEntityAttributeValue(
+                          this.stateObj,
+                          "mode"
+                        )}`
+                      : ""
+                  }
+                </span>
+                <div class="unit">${this._computeTarget()}</div>`
+            : this._localizeState()
+        }
       </div>
 
-      ${currentStatus && !noValue
-        ? html`<div class="current">
-            ${this._localize("ui.card.humidifier.currently")}:
-            <div class="unit">${currentStatus}</div>
-          </div>`
-        : ""}`;
+      ${
+        currentStatus && !noValue
+          ? html`<div class="current">
+              ${this._localize("ui.card.humidifier.currently")}:
+              <div class="unit">${currentStatus}</div>
+            </div>`
+          : ""
+      }`;
   }
 
   private _computeCurrentStatus(): string | undefined {

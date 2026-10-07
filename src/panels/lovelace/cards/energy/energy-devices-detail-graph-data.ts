@@ -1,5 +1,7 @@
 import type { BarSeriesOption } from "echarts/charts";
+import type { HassEntities } from "home-assistant-js-websocket";
 import { getGraphColorByIndex } from "../../../../common/color/colors";
+import type { LocalizeFunc } from "../../../../common/translations/localize";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
 import type { CustomLegendOption } from "../../../../components/chart/ha-chart-base";
 import type {
@@ -8,22 +10,24 @@ import type {
 } from "../../../../data/energy";
 import {
   computeConsumptionData,
+  computeEnergyDeviceLabels,
   getSuggestedPeriod,
   getSummedData,
 } from "../../../../data/energy";
-import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
+import type { Statistics } from "../../../../data/recorder";
 import {
   calculateStatisticSumGrowth,
-  getStatisticLabel,
   isExternalStatistic,
 } from "../../../../data/recorder";
-import type { HomeAssistant } from "../../../../types";
+import type { HomeAssistantFormatters } from "../../../../types";
 import type { EnergyDevicesDetailGraphCardConfig } from "../types";
 import {
   computeStatMidpoint,
   type EnergyDataPoint,
   fillDataGapsAndRoundCaps,
+  generateFillBuckets,
   getCompareTransform,
+  getPeriodMidpointOffset,
   splitUntrackedConsumption,
 } from "./common/energy-chart-options";
 import { getEnergyColor } from "./common/color";
@@ -31,7 +35,10 @@ import { getEnergyColor } from "./common/color";
 const UNIT = "kWh";
 
 export interface EnergyDevicesDetailGraphDataParams {
-  hass: HomeAssistant;
+  localize: LocalizeFunc;
+  states: HassEntities;
+  formatEntityName: HomeAssistantFormatters["formatEntityName"];
+  darkMode: boolean;
   energyData: EnergyData;
   config: EnergyDevicesDetailGraphCardConfig;
   computedStyles: CSSStyleDeclaration;
@@ -61,19 +68,20 @@ const getStatIdFromId = (id: string): string =>
     .replace(/-\d+$/, ""); // Remove numeric suffix
 
 interface ProcessContext {
-  hass: HomeAssistant;
+  localize: LocalizeFunc;
+  darkMode: boolean;
   config: EnergyDevicesDetailGraphCardConfig;
   start: Date;
   end: Date;
   compareStart?: Date;
   untrackedOrder: number;
+  deviceLabels: Record<string, string>;
 }
 
 function processDataSet(
   ctx: ProcessContext,
   computedStyle: CSSStyleDeclaration,
   statistics: Statistics,
-  statisticsMetaData: Record<string, StatisticsMetaData>,
   devices: DeviceConsumptionEnergyPreference[],
   sorted_devices: string[],
   childMap: Record<string, string[]>,
@@ -165,14 +173,9 @@ function processDataSet(
     }
 
     const name =
-      (source.name ||
-        getStatisticLabel(
-          ctx.hass,
-          source.stat_consumption,
-          statisticsMetaData[source.stat_consumption]
-        )) +
+      ctx.deviceLabels[source.stat_consumption] +
       (source.stat_consumption in childMap
-        ? ` (${ctx.hass.localize("ui.panel.lovelace.cards.energy.energy_devices_detail_graph.untracked")})`
+        ? ` (${ctx.localize("ui.panel.lovelace.cards.energy.energy_devices_detail_graph.untracked")})`
         : "");
 
     data.push({
@@ -237,12 +240,15 @@ function processUntracked(
   const sortedTimes = Object.keys(consumptionData.used_total).sort(
     (a, b) => Number(a) - Number(b)
   );
-  // Only start timestamps available here, so estimate midpoint from the gap
-  // between the first two entries. Assumes uniform period spacing.
-  const periodOffset =
-    (period === "hour" || period === "5minute") && sortedTimes.length >= 2
-      ? (Number(sortedTimes[1]) - Number(sortedTimes[0])) / 2
-      : 0;
+  // Only start timestamps available here, so center sub-daily bars from the
+  // gap between the first two entries, clamped to the nominal period so
+  // sparse or lone buckets stay centered on the same grid as the device bars.
+  const periodOffset = getPeriodMidpointOffset(
+    period,
+    sortedTimes.length >= 2
+      ? Number(sortedTimes[1]) - Number(sortedTimes[0])
+      : undefined
+  );
   sortedTimes.forEach((time) => {
     const ts = Number(time);
     const x = compare
@@ -272,7 +278,7 @@ function processUntracked(
     itemStyle: {
       borderColor: getEnergyColor(
         computedStyle,
-        ctx.hass.themes.darkMode,
+        ctx.darkMode,
         false,
         compare,
         "--history-unknown-color"
@@ -281,7 +287,7 @@ function processUntracked(
     barMaxWidth: 50,
     color: getEnergyColor(
       computedStyle,
-      ctx.hass.themes.darkMode,
+      ctx.darkMode,
       true,
       compare,
       "--history-unknown-color"
@@ -291,7 +297,7 @@ function processUntracked(
   });
   const dataset = makeDataset(
     compare ? `compare-untracked-${order}` : `untracked-${order}`,
-    ctx.hass.localize(
+    ctx.localize(
       "ui.panel.lovelace.cards.energy.energy_devices_detail_graph.untracked_consumption"
     ),
     untrackedConsumption
@@ -301,7 +307,7 @@ function processUntracked(
     compare
       ? `compare-untracked-negative-${order}`
       : `untracked-negative-${order}`,
-    ctx.hass.localize(
+    ctx.localize(
       "ui.panel.lovelace.cards.energy.energy_devices_detail_graph.over_reported_consumption"
     ),
     negativeUntracked
@@ -327,15 +333,24 @@ const untrackedLegendItem = (
 /**
  * Transforms an `EnergyData` collection update into the ECharts bar series and
  * derived chart state for `hui-energy-devices-detail-graph-card`. Pure data
- * processing: all environment inputs (current time via `now`, theme style via
- * `computedStyles`, hass, config) are injected so the transform is
+ * processing: all environment inputs (current time via `now`, theme style,
+ * localize, entity states and names, config) are injected so the transform is
  * deterministic and benchmarkable.
  */
 export function generateEnergyDevicesDetailGraphData(
   params: EnergyDevicesDetailGraphDataParams
 ): EnergyDevicesDetailGraphData {
-  const { hass, energyData, config, computedStyles, now, untrackedOrder } =
-    params;
+  const {
+    localize,
+    states,
+    formatEntityName,
+    darkMode,
+    energyData,
+    config,
+    computedStyles,
+    now,
+    untrackedOrder,
+  } = params;
 
   const start = energyData.start;
   const end = energyData.end || now;
@@ -346,16 +361,23 @@ export function generateEnergyDevicesDetailGraphData(
   const data = energyData.stats;
   const compareData = energyData.statsCompare;
 
+  const devices = energyData.prefs.device_consumption;
+
   const ctx: ProcessContext = {
-    hass,
+    localize,
+    darkMode,
     config,
     start,
     end,
     compareStart,
     untrackedOrder,
+    deviceLabels: computeEnergyDeviceLabels(
+      states,
+      formatEntityName,
+      devices,
+      energyData.statsMetadata
+    ),
   };
-
-  const devices = energyData.prefs.device_consumption;
 
   const childMap: Record<string, string[]> = {};
   devices.forEach((d) => {
@@ -420,7 +442,6 @@ export function generateEnergyDevicesDetailGraphData(
       ctx,
       computedStyles,
       compareData,
-      energyData.statsMetadata,
       energyData.prefs.device_consumption,
       sorted_devices,
       childMap,
@@ -463,7 +484,6 @@ export function generateEnergyDevicesDetailGraphData(
     ctx,
     computedStyles,
     data,
-    energyData.statsMetadata,
     energyData.prefs.device_consumption,
     sorted_devices,
     childMap,
@@ -481,7 +501,7 @@ export function generateEnergyDevicesDetailGraphData(
         color: d.color as string,
         borderColor: d.itemStyle?.borderColor as string,
       },
-      noLabelClick: isExternalStatistic(statId) || !hass.states[statId],
+      noLabelClick: isExternalStatistic(statId) || !states[statId],
     };
   });
 
@@ -511,8 +531,12 @@ export function generateEnergyDevicesDetailGraphData(
     }
   }
 
-  fillDataGapsAndRoundCaps(datasets);
-  const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax);
+  fillDataGapsAndRoundCaps(
+    datasets,
+    true,
+    generateFillBuckets(datasets, start, end, getSuggestedPeriod(start, end))
+  );
+  const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
 
   return {
     chartData: datasets,

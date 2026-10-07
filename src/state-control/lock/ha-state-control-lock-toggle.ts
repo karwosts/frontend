@@ -1,9 +1,9 @@
-import { consume } from "@lit/context";
 import type { PropertyValues, TemplateResult } from "lit";
 import { html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import { styleMap } from "lit/directives/style-map";
+import { consume } from "../../common/decorators/consume";
 import { consumeLocalize } from "../../common/decorators/consume-context-entry";
 import { fireEvent } from "../../common/dom/fire_event";
 import { stateColorCss } from "../../common/entity/state_color";
@@ -134,9 +134,11 @@ export class HaStateControlLockToggle extends LitElement {
         reversed
         .checked=${this._isOn}
         @change=${this._valueChanged}
-        .label=${this._isOn
-          ? this._localize("ui.card.lock.unlock")
-          : this._localize("ui.card.lock.lock")}
+        .label=${
+          this._isOn
+            ? this._localize("ui.card.lock.unlock")
+            : this._localize("ui.card.lock.lock")
+        }
         style=${styleMap({
           "--control-switch-on-color": color,
           "--control-switch-off-color": color,

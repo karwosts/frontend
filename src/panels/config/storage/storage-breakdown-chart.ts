@@ -14,6 +14,7 @@ import "../../../components/ha-spinner";
 import type { HassioHostInfo, HostDisksUsage } from "../../../data/hassio/host";
 import type { HomeAssistant } from "../../../types";
 import { roundWithOneDecimal } from "../../../util/calculate";
+import { bidiIsolate } from "../../../common/bidi";
 
 @customElement("storage-breakdown-chart")
 export class StorageBreakdownChart extends LitElement {
@@ -43,8 +44,8 @@ export class StorageBreakdownChart extends LitElement {
     const description = this.hass.localize(
       "ui.panel.config.storage.detailed_description",
       {
-        used: `${roundWithOneDecimal(usedSpaceGB)} GB`,
-        total: `${roundWithOneDecimal(totalSpaceGB)} GB`,
+        used: this._formatGB(usedSpaceGB),
+        total: this._formatGB(totalSpaceGB),
       }
     );
     const showBarChart = this._chartType === "bar" || !hasChildren;
@@ -56,9 +57,9 @@ export class StorageBreakdownChart extends LitElement {
           <span class="description">${description}</span>
         </div>
         <ha-icon-button
-          .path=${this._chartType === "sunburst"
-            ? mdiViewArray
-            : mdiChartDonutVariant}
+          .path=${
+            this._chartType === "sunburst" ? mdiViewArray : mdiChartDonutVariant
+          }
           .label=${this.hass.localize(
             "ui.panel.config.storage.change_chart_type"
           )}
@@ -68,29 +69,33 @@ export class StorageBreakdownChart extends LitElement {
       </div>
 
       <div class="chart-container ${this._chartType}">
-        ${showBarChart
-          ? html`<ha-segmented-bar
-              .heading=${""}
-              .segments=${this._computeSegments(
-                this.storageInfo,
-                usedSpaceGB,
-                freeSpaceGB
-              )}
-            ></ha-segmented-bar>`
-          : html`<ha-sunburst-chart
-              .data=${this._transformToSunburstData(this.storageInfo!)}
-              .valueFormatter=${this._formatBytes}
-            ></ha-sunburst-chart>`}
+        ${
+          showBarChart
+            ? html`<ha-segmented-bar
+                .heading=${""}
+                .segments=${this._computeSegments(
+                  this.storageInfo,
+                  usedSpaceGB,
+                  freeSpaceGB
+                )}
+              ></ha-segmented-bar>`
+            : html`<ha-sunburst-chart
+                .data=${this._transformToSunburstData(this.storageInfo!)}
+                .valueFormatter=${this._formatBytes}
+              ></ha-sunburst-chart>`
+        }
       </div>
 
-      ${!this.storageInfo || this.storageInfo === null
-        ? html`<ha-alert alert-type="info">
-            <ha-spinner slot="icon"></ha-spinner>
-            ${this.hass.localize(
-              "ui.panel.config.storage.loading_detailed"
-            )}</ha-alert
-          >`
-        : nothing}
+      ${
+        !this.storageInfo || this.storageInfo === null
+          ? html`<ha-alert alert-type="info">
+              <ha-spinner slot="icon"></ha-spinner>
+              ${this.hass.localize(
+                "ui.panel.config.storage.loading_detailed"
+              )}</ha-alert
+            >`
+          : nothing
+      }
     `;
   }
 
@@ -138,13 +143,15 @@ export class StorageBreakdownChart extends LitElement {
             segments.push({
               value: space,
               color: getGraphColorByIndex(index, computedStyles),
-              label: html`${this.hass.localize(
-                  `ui.panel.config.storage.segments.${child.id}`
-                ) ||
-                child.label ||
-                child.id}
+              label: html`${
+                  this.hass.localize(
+                    `ui.panel.config.storage.segments.${child.id}`
+                  ) ||
+                  child.label ||
+                  child.id
+                }
                 <span style="color: var(--secondary-text-color)"
-                  >${roundWithOneDecimal(space)} GB</span
+                  >${this._formatGB(space)}</span
                 >`,
             });
           }
@@ -157,7 +164,7 @@ export class StorageBreakdownChart extends LitElement {
               "ui.panel.config.storage.segments.used"
             )}
             <span style="color: var(--secondary-text-color)"
-              >${roundWithOneDecimal(usedSpaceGB)} GB</span
+              >${this._formatGB(usedSpaceGB)}</span
             >`,
         });
       }
@@ -170,7 +177,7 @@ export class StorageBreakdownChart extends LitElement {
             "ui.panel.config.storage.segments.free"
           )}
           <span style="color: var(--secondary-text-color)"
-            >${roundWithOneDecimal(freeSpaceGB)} GB</span
+            >${this._formatGB(freeSpaceGB)}</span
           >`,
       });
 
@@ -196,7 +203,11 @@ export class StorageBreakdownChart extends LitElement {
 
   private _formatBytes = (bytes: number): string => {
     const gb = this._bytesToGB(bytes);
-    return `${roundWithOneDecimal(gb)} GB`;
+    return this._formatGB(gb);
+  };
+
+  private _formatGB = (GB: number): string => {
+    return bidiIsolate(`${roundWithOneDecimal(GB)} GB`);
   };
 
   private _formatLabel = (id: string): string =>
@@ -226,6 +237,8 @@ export class StorageBreakdownChart extends LitElement {
       color: var(--primary-text-color);
       line-height: var(--ha-line-height-expanded);
       margin-right: var(--ha-space-2);
+      margin-inline-end: var(--ha-space-2);
+      margin-inline-start: initial;
     }
 
     .description {

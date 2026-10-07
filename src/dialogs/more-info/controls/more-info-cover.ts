@@ -1,8 +1,8 @@
-import { consume } from "@lit/context";
 import { mdiMenu, mdiSwapVertical } from "@mdi/js";
 import type { CSSResultGroup, PropertyValues } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import { consumeLocalize } from "../../../common/decorators/consume-context-entry";
 import { supportsFeature } from "../../../common/entity/supports-feature";
 import type { LocalizeFunc } from "../../../common/translations/localize";
@@ -131,39 +131,45 @@ class MoreInfoCover extends LitElement {
           ${
             this._mode === "position"
               ? html`
-                  ${supportsPosition
-                    ? html`
-                        <ha-state-control-cover-position
-                          .stateObj=${this.stateObj}
-                        ></ha-state-control-cover-position>
-                      `
-                    : nothing}
-                  ${supportsTiltPosition
-                    ? html`
-                        <ha-state-control-cover-tilt-position
-                          .stateObj=${this.stateObj}
-                        ></ha-state-control-cover-tilt-position>
-                      `
-                    : nothing}
+                  ${
+                    supportsPosition
+                      ? html`
+                          <ha-state-control-cover-position
+                            .stateObj=${this.stateObj}
+                          ></ha-state-control-cover-position>
+                        `
+                      : nothing
+                  }
+                  ${
+                    supportsTiltPosition
+                      ? html`
+                          <ha-state-control-cover-tilt-position
+                            .stateObj=${this.stateObj}
+                          ></ha-state-control-cover-tilt-position>
+                        `
+                      : nothing
+                  }
                 `
               : nothing
           }
           ${
             this._mode === "button"
               ? html`
-                  ${supportsOpenCloseOnly
-                    ? html`
-                        <ha-state-control-cover-toggle
-                          .stateObj=${this.stateObj}
-                        ></ha-state-control-cover-toggle>
-                      `
-                    : supportsOpenClose || supportsTilt
+                  ${
+                    supportsOpenCloseOnly
                       ? html`
-                          <ha-state-control-cover-buttons
+                          <ha-state-control-cover-toggle
                             .stateObj=${this.stateObj}
-                          ></ha-state-control-cover-buttons>
+                          ></ha-state-control-cover-toggle>
                         `
-                      : nothing}
+                      : supportsOpenClose || supportsTilt
+                        ? html`
+                            <ha-state-control-cover-buttons
+                              .stateObj=${this.stateObj}
+                            ></ha-state-control-cover-buttons>
+                          `
+                        : nothing
+                  }
                 `
               : nothing
           }

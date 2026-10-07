@@ -57,53 +57,60 @@ export class MoreInfoHistory extends LitElement {
       return nothing;
     }
 
-    return html`${isComponentLoaded(this.hass.config, "history")
-      ? html`<div class="header">
-            <div>
-              <h2>
-                ${this.hass.localize("ui.dialogs.more_info_control.history")}
-              </h2>
-              ${this._statistics
-                ? html`<div class="header-secondary">
-                    ${this.hass.localize(
-                      "ui.dialogs.more_info_control.aggregate"
-                    )}
-                  </div>`
-                : nothing}
+    return html`${
+      isComponentLoaded(this.hass.config, "history")
+        ? html`<div class="header">
+              <div>
+                <h2>
+                  ${this.hass.localize("ui.dialogs.more_info_control.history")}
+                </h2>
+                ${
+                  this._statistics
+                    ? html`<div class="header-secondary">
+                        ${this.hass.localize(
+                          "ui.dialogs.more_info_control.aggregate"
+                        )}
+                      </div>`
+                    : nothing
+                }
+              </div>
+              ${
+                __DEMO__
+                  ? nothing
+                  : html`<a href=${this._showMoreHref}
+                      >${this.hass.localize(
+                        "ui.dialogs.more_info_control.show_more"
+                      )}</a
+                    >`
+              }
             </div>
-            ${__DEMO__
-              ? nothing
-              : html`<a href=${this._showMoreHref}
-                  >${this.hass.localize(
-                    "ui.dialogs.more_info_control.show_more"
-                  )}</a
-                >`}
-          </div>
-          ${this._error
-            ? html`<ha-alert alert-type="error">
-                ${this.hass.localize("ui.components.history_charts.error")}:
-                ${this._error.message || this._error.code}
-              </ha-alert>`
-            : this._statistics
-              ? html`<statistics-chart
-                  .hass=${this.hass}
-                  .isLoadingData=${!this._statistics}
-                  .statisticsData=${this._statistics}
-                  .metadata=${this._metadata}
-                  .statTypes=${statTypes}
-                  .names=${this._statNames}
-                  hide-legend
-                  .clickForMoreInfo=${false}
-                ></statistics-chart>`
-              : html`<state-history-charts
-                  up-to-now
-                  .hass=${this.hass}
-                  .historyData=${this._stateHistory}
-                  .isLoadingData=${!this._stateHistory}
-                  .showNames=${false}
-                  .clickForMoreInfo=${false}
-                ></state-history-charts>`}`
-      : ""}`;
+            ${
+              this._error
+                ? html`<ha-alert alert-type="error">
+                    ${this.hass.localize("ui.components.history_charts.error")}:
+                    ${this._error.message || this._error.code}
+                  </ha-alert>`
+                : this._statistics
+                  ? html`<statistics-chart
+                      .isLoadingData=${!this._statistics}
+                      .statisticsData=${this._statistics}
+                      .metadata=${this._metadata}
+                      .statTypes=${statTypes}
+                      .names=${this._statNames}
+                      hide-legend
+                      .clickForMoreInfo=${false}
+                    ></statistics-chart>`
+                  : html`<state-history-charts
+                      up-to-now
+                      .hass=${this.hass}
+                      .historyData=${this._stateHistory}
+                      .isLoadingData=${!this._stateHistory}
+                      .showNames=${false}
+                      .clickForMoreInfo=${false}
+                    ></state-history-charts>`
+            }`
+        : ""
+    }`;
   }
 
   protected willUpdate(changedProps: PropertyValues<this>): void {
@@ -185,7 +192,7 @@ export class MoreInfoHistory extends LitElement {
 
   private async _getStatisticsMetaData(statisticIds: string[] | undefined) {
     const statsMetadataArray = await getStatisticMetadata(
-      this.hass,
+      this.hass.callWS,
       statisticIds
     );
     const statisticsMetaData = {};
@@ -201,7 +208,7 @@ export class MoreInfoHistory extends LitElement {
     // faster.
     const _metadata = this._getStatisticsMetaData([this.entityId]);
     const _statistics = fetchStatistics(
-      this.hass!,
+      this.hass!.callWS,
       subHours(new Date(), 24),
       undefined,
       [this.entityId],
@@ -278,6 +285,7 @@ export class MoreInfoHistory extends LitElement {
         justify-content: space-between;
         align-items: center;
         margin-bottom: var(--ha-space-2);
+        padding-inline: var(--ha-space-6);
       }
       .header > a,
       a:visited {
@@ -289,6 +297,12 @@ export class MoreInfoHistory extends LitElement {
       }
       h2 {
         margin: 0;
+      }
+      ha-alert,
+      state-history-charts,
+      statistics-chart {
+        display: block;
+        padding-inline: var(--ha-space-6);
       }
     `,
   ];

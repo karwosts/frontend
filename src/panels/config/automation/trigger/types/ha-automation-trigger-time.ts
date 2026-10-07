@@ -2,7 +2,11 @@ import type { PropertyValues } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
-import { firstWeekdayIndex } from "../../../../../common/datetime/first_weekday";
+import { ensureArray } from "../../../../../common/array/ensure-array";
+import {
+  sortWeekdays,
+  weekdaysFromFirst,
+} from "../../../../../common/datetime/sort_weekdays";
 import { fireEvent } from "../../../../../common/dom/fire_event";
 import { computeDomain } from "../../../../../common/entity/compute_domain";
 import type { LocalizeFunc } from "../../../../../common/translations/localize";
@@ -16,7 +20,6 @@ import type { TriggerElement } from "../ha-automation-trigger-row";
 const MODE_TIME = "time";
 const MODE_ENTITY = "entity";
 const VALID_DOMAINS = ["sensor", "input_datetime"];
-const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
 @customElement("ha-automation-trigger-time")
 export class HaTimeTrigger extends LitElement implements TriggerElement {
@@ -27,9 +30,7 @@ export class HaTimeTrigger extends LitElement implements TriggerElement {
   @property({ type: Boolean }) public disabled = false;
 
   @state() private _inputMode:
-    | undefined
-    | typeof MODE_TIME
-    | typeof MODE_ENTITY;
+    undefined | typeof MODE_TIME | typeof MODE_ENTITY;
 
   public static get defaultConfig(): TimeTrigger {
     return { trigger: "time", at: "" };
@@ -41,10 +42,7 @@ export class HaTimeTrigger extends LitElement implements TriggerElement {
       locale: FrontendLocaleData,
       inputMode: typeof MODE_TIME | typeof MODE_ENTITY
     ) => {
-      const dayIndex = firstWeekdayIndex(locale);
-      const sortedDays = DAYS.slice(dayIndex, DAYS.length).concat(
-        DAYS.slice(0, dayIndex)
-      );
+      const sortedDays = weekdaysFromFirst(locale);
       return [
         {
           name: "mode",
@@ -116,8 +114,7 @@ export class HaTimeTrigger extends LitElement implements TriggerElement {
     (
       inputMode: undefined | typeof MODE_ENTITY | typeof MODE_TIME,
       at:
-        | string
-        | { entity_id: string | undefined; offset?: string | undefined },
+        string | { entity_id: string | undefined; offset?: string | undefined },
       weekday: string | string[] | undefined
     ): {
       mode: typeof MODE_TIME | typeof MODE_ENTITY;
@@ -198,7 +195,10 @@ export class HaTimeTrigger extends LitElement implements TriggerElement {
 
     // Only include weekday if it has a value
     if (weekday && weekday.length > 0) {
-      triggerUpdate.weekday = weekday;
+      triggerUpdate.weekday = sortWeekdays(
+        this.hass.locale,
+        ensureArray(weekday)
+      );
     } else {
       delete triggerUpdate.weekday;
     }

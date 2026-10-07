@@ -16,6 +16,7 @@ import "../../../../../components/list/ha-list-selectable-virtualized";
 import type { ZHADeviceEndpoint, ZHAGroup } from "../../../../../data/zha";
 import {
   addMembersToGroup,
+  computeZHAEntityName,
   fetchGroup,
   fetchGroupableDevices,
 } from "../../../../../data/zha";
@@ -113,43 +114,51 @@ class DialogZHAAddGroupMembers
           @click=${this.closeDialog}
         ></ha-icon-button>
         <div class="content">
-          ${this._loading
-            ? this._renderLoadingSpinner()
-            : html`
-                ${showSearch
-                  ? html`
-                      <ha-input-search
-                        appearance="outlined"
-                        .value=${this._filter}
-                        @input=${this._handleFilterChanged}
-                      ></ha-input-search>
-                    `
-                  : nothing}
-                <div class="list-container">
-                  ${deviceEndpoints.length
-                    ? html`
-                        <ha-list-selectable-virtualized
-                          multi
-                          .rows=${deviceEndpoints}
-                          .rowRenderer=${this._renderDeviceEndpoint}
-                          @ha-list-item-selected=${this._handleSelected}
-                          @ha-list-item-deselected=${this._handleDeselected}
-                        >
-                        </ha-list-selectable-virtualized>
-                      `
-                    : html`
-                        <div class="empty-list">
-                          ${this._filter
-                            ? this.hass.localize(
-                                "ui.panel.config.zha.groups.no_devices_found"
-                              )
-                            : this.hass.localize(
-                                "ui.panel.config.zha.groups.no_devices_to_add"
-                              )}
-                        </div>
-                      `}
-                </div>
-              `}
+          ${
+            this._loading
+              ? this._renderLoadingSpinner()
+              : html`
+                  ${
+                    showSearch
+                      ? html`
+                          <ha-input-search
+                            appearance="outlined"
+                            .value=${this._filter}
+                            @input=${this._handleFilterChanged}
+                          ></ha-input-search>
+                        `
+                      : nothing
+                  }
+                  <div class="list-container">
+                    ${
+                      deviceEndpoints.length
+                        ? html`
+                            <ha-list-selectable-virtualized
+                              multi
+                              .rows=${deviceEndpoints}
+                              .rowRenderer=${this._renderDeviceEndpoint}
+                              @ha-list-item-selected=${this._handleSelected}
+                              @ha-list-item-deselected=${this._handleDeselected}
+                            >
+                            </ha-list-selectable-virtualized>
+                          `
+                        : html`
+                            <div class="empty-list">
+                              ${
+                                this._filter
+                                  ? this.hass.localize(
+                                      "ui.panel.config.zha.groups.no_devices_found"
+                                    )
+                                  : this.hass.localize(
+                                      "ui.panel.config.zha.groups.no_devices_to_add"
+                                    )
+                              }
+                            </div>
+                          `
+                    }
+                  </div>
+                `
+          }
         </div>
 
         <ha-dialog-footer slot="footer">
@@ -163,9 +172,9 @@ class DialogZHAAddGroupMembers
           </ha-button>
           <ha-button
             slot="primaryAction"
-            .disabled=${this._loading ||
-            !this.isDirtyState ||
-            this._processingAdd}
+            .disabled=${
+              this._loading || !this.isDirtyState || this._processingAdd
+            }
             .loading=${this._processingAdd}
             @click=${this._addMembersToGroup}
           >
@@ -254,8 +263,9 @@ class DialogZHAAddGroupMembers
   }
 
   private _deviceEndpointDetails(deviceEndpoint: ZHADeviceEndpoint): string {
-    const entityNames = deviceEndpoint.entities.map(
-      (entity) => entity.name || entity.original_name || entity.entity_id
+    const deviceName = this._deviceEndpointName(deviceEndpoint);
+    const entityNames = deviceEndpoint.entities.map((entity) =>
+      computeZHAEntityName(entity, deviceName)
     );
     const entitySummary = entityNames.length
       ? entityNames.length > 2

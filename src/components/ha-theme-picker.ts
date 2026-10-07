@@ -1,8 +1,9 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import type { TemplateResult } from "lit";
 import { css, html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
+import { consume } from "../common/decorators/consume";
 import { fireEvent } from "../common/dom/fire_event";
 import { caseInsensitiveStringCompare } from "../common/string/compare";
 import { internationalizationContext, uiContext } from "../data/context";
@@ -77,11 +78,15 @@ export class HaThemePicker extends LitElement {
   protected render(): TemplateResult {
     return html`
       <ha-generic-picker
-        .label=${this.label ??
-        this._i18n?.localize("ui.components.theme-picker.theme") ??
-        "Theme"}
-        .placeholder=${this.noThemeLabel ??
-        this._i18n?.localize("ui.components.theme-picker.no_theme")}
+        .label=${
+          this.label ??
+          this._i18n?.localize("ui.components.theme-picker.theme") ??
+          "Theme"
+        }
+        .placeholder=${
+          this.noThemeLabel ??
+          this._i18n?.localize("ui.components.theme-picker.no_theme")
+        }
         .helper=${this.helper}
         .value=${this.value}
         .valueRenderer=${this._valueRenderer}

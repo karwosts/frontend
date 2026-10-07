@@ -1,8 +1,8 @@
-import { consume } from "@lit/context";
 import type { CSSResultGroup } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { styleMap } from "lit/directives/style-map";
+import { consume } from "../../../common/decorators/consume";
 import { consumeLocalize } from "../../../common/decorators/consume-context-entry";
 import { stateColorCss } from "../../../common/entity/state_color";
 import type { LocalizeFunc } from "../../../common/translations/localize";
@@ -55,29 +55,33 @@ class MoreInfoAlarmControlPanel extends LitElement {
         .stateObj=${this.stateObj}
       ></ha-more-info-state-header>
       <div class="controls" style=${styleMap(style)}>
-        ${["triggered", "arming", "pending"].includes(this.stateObj.state)
-          ? html`
-              <div class="status">
-                <div class="icon">
-                  <ha-state-icon .stateObj=${this.stateObj}> </ha-state-icon>
+        ${
+          ["triggered", "arming", "pending"].includes(this.stateObj.state)
+            ? html`
+                <div class="status">
+                  <div class="icon">
+                    <ha-state-icon .stateObj=${this.stateObj}> </ha-state-icon>
+                  </div>
                 </div>
-              </div>
-            `
-          : html`
-              <ha-state-control-alarm_control_panel-modes
-                .stateObj=${this.stateObj}
-              >
-              </ha-state-control-alarm_control_panel-modes>
-            `}
+              `
+            : html`
+                <ha-state-control-alarm_control_panel-modes
+                  .stateObj=${this.stateObj}
+                >
+                </ha-state-control-alarm_control_panel-modes>
+              `
+        }
       </div>
       <div>
-        ${["triggered", "arming", "pending"].includes(this.stateObj.state)
-          ? html`
-              <ha-control-button @click=${this._disarm} class="disarm">
-                ${this._localize("ui.card.alarm_control_panel.disarm")}
-              </ha-control-button>
-            `
-          : nothing}
+        ${
+          ["triggered", "arming", "pending"].includes(this.stateObj.state)
+            ? html`
+                <ha-control-button @click=${this._disarm} class="disarm">
+                  ${this._localize("ui.card.alarm_control_panel.disarm")}
+                </ha-control-button>
+              `
+            : nothing
+        }
       </div>
     `;
   }

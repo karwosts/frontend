@@ -3,8 +3,7 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, property } from "lit/decorators";
 import { repeat } from "lit/directives/repeat";
 import { fireEvent } from "../../../common/dom/fire_event";
-import { entityUseDeviceName } from "../../../common/entity/compute_entity_name";
-import { computeRTL } from "../../../common/util/compute_rtl";
+import { computeEntityPickerDisplay } from "../../../common/entity/compute_entity_name_display";
 import "../../../components/entity/ha-entity-picker";
 import type { HaEntityPicker } from "../../../components/entity/ha-entity-picker";
 import "../../../components/ha-icon-button";
@@ -41,34 +40,9 @@ export class HuiEntityEditor extends LitElement {
   private _renderItem(item: EntityConfig, index: number) {
     const stateObj = this.hass.states[item.entity];
 
-    const useDeviceName =
-      stateObj &&
-      entityUseDeviceName(stateObj, this.hass.entities, this.hass.devices);
-
-    const isRTL = computeRTL(
-      this.hass.language,
-      this.hass.translationMetadata.translations
-    );
-
-    const primary =
-      (stateObj &&
-        this.hass.formatEntityName(
-          stateObj,
-          useDeviceName ? { type: "device" } : { type: "entity" }
-        )) ||
-      item.entity;
-
-    const secondary =
-      stateObj &&
-      this.hass.formatEntityName(
-        stateObj,
-        useDeviceName
-          ? [{ type: "area" }]
-          : [{ type: "area" }, { type: "device" }],
-        {
-          separator: isRTL ? " ◂ " : " ▸ ",
-        }
-      );
+    const { primary, secondary } = stateObj
+      ? computeEntityPickerDisplay(this.hass, stateObj)
+      : { primary: item.entity, secondary: undefined };
 
     return html`
       <ha-md-list-item class="item">
@@ -79,11 +53,13 @@ export class HuiEntityEditor extends LitElement {
         ></ha-svg-icon>
 
         <div slot="headline" class="label">${primary}</div>
-        ${secondary
-          ? html`<div slot="supporting-text" class="description">
-              ${secondary}
-            </div>`
-          : nothing}
+        ${
+          secondary
+            ? html`<div slot="supporting-text" class="description">
+                ${secondary}
+              </div>`
+            : nothing
+        }
         <ha-icon-button
           slot="end"
           .item=${item}
@@ -129,58 +105,60 @@ export class HuiEntityEditor extends LitElement {
 
     return html`
       <h3>
-        ${this.label ||
-        `${this.hass.localize("ui.panel.lovelace.editor.card.generic.entities")}${
-          this.required
-            ? ` (${this.hass.localize("ui.panel.lovelace.editor.card.config.required")})`
-            : ""
-        }`}
+        ${
+          this.label ||
+          `${this.hass.localize("ui.panel.lovelace.editor.card.generic.entities")}${
+            this.required
+              ? ` (${this.hass.localize("ui.panel.lovelace.editor.card.config.required")})`
+              : ""
+          }`
+        }
       </h3>
-      ${this.canEdit
-        ? html`
-            <div class="items-container">
-              <ha-sortable
-                handle-selector=".handle"
-                draggable-selector=".item"
-                @item-moved=${this._entityMoved}
-              >
-                <ha-md-list>
-                  ${this.entities.map((item, index) =>
-                    this._renderItem(item, index)
-                  )}
-                </ha-md-list>
-              </ha-sortable>
-            </div>
-          `
-        : html`<ha-sortable
-            handle-selector=".handle"
-            @item-moved=${this._entityMoved}
-          >
-            <div class="entities">
-              ${repeat(
-                this.entities,
-                (entityConf) => this._getKey(entityConf),
-                (entityConf, index) => html`
-                  <div class="entity" data-entity-id=${entityConf.entity}>
-                    <div class="handle">
-                      <ha-svg-icon
-                        .path=${mdiDragHorizontalVariant}
-                      ></ha-svg-icon>
+      ${
+        this.canEdit
+          ? html`
+              <div class="items-container">
+                <ha-sortable
+                  handle-selector=".handle"
+                  draggable-selector=".item"
+                  @item-moved=${this._entityMoved}
+                >
+                  <ha-md-list>
+                    ${this.entities.map((item, index) =>
+                      this._renderItem(item, index)
+                    )}
+                  </ha-md-list>
+                </ha-sortable>
+              </div>
+            `
+          : html`<ha-sortable
+              handle-selector=".handle"
+              @item-moved=${this._entityMoved}
+            >
+              <div class="entities">
+                ${repeat(
+                  this.entities,
+                  (entityConf) => this._getKey(entityConf),
+                  (entityConf, index) => html`
+                    <div class="entity" data-entity-id=${entityConf.entity}>
+                      <div class="handle">
+                        <ha-svg-icon
+                          .path=${mdiDragHorizontalVariant}
+                        ></ha-svg-icon>
+                      </div>
+                      <ha-entity-picker
+                        .value=${entityConf.entity}
+                        .index=${index}
+                        .entityFilter=${this.entityFilter}
+                        @value-changed=${this._valueChanged}
+                      ></ha-entity-picker>
                     </div>
-                    <ha-entity-picker
-                      .hass=${this.hass}
-                      .value=${entityConf.entity}
-                      .index=${index}
-                      .entityFilter=${this.entityFilter}
-                      @value-changed=${this._valueChanged}
-                    ></ha-entity-picker>
-                  </div>
-                `
-              )}
-            </div>
-          </ha-sortable>`}
+                  `
+                )}
+              </div>
+            </ha-sortable>`
+      }
       <ha-entity-picker
-        .hass=${this.hass}
         .entityFilter=${this.entityFilter}
         @value-changed=${this._addEntity}
         add-button

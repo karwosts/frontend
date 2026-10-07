@@ -1,5 +1,5 @@
 import type { HassEntity } from "home-assistant-js-websocket";
-import { load } from "js-yaml";
+import { load, YAML11_SCHEMA } from "js-yaml";
 import type { CSSResultGroup } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, queryAll } from "lit/decorators";
@@ -37,10 +37,19 @@ import "./action/ha-automation-action";
 import type HaAutomationAction from "./action/ha-automation-action";
 import "./condition/ha-automation-condition";
 import type HaAutomationCondition from "./condition/ha-automation-condition";
-import { ManualEditorMixin } from "./ha-manual-editor-mixin";
+import {
+  ManualEditorMixin,
+  PASTED_CONFIG_TOAST_ID,
+} from "./ha-manual-editor-mixin";
 import { showPasteReplaceDialog } from "./paste-replace-dialog/show-dialog-paste-replace";
 import { manualEditorStyles, saveFabStyles } from "./styles";
 import "./trigger/ha-automation-trigger";
+import {
+  cleanupRemovedGeneratedTriggerReferences,
+  getExplicitTriggerIds,
+  isGeneratedTriggerId,
+  stripGeneratedTriggerIds,
+} from "./trigger/automation-trigger-id";
 
 const baseConfigStruct = object({
   alias: optional(string()),
@@ -51,6 +60,8 @@ const baseConfigStruct = object({
   mode: optional(string()),
   max_exceeded: optional(string()),
   id: optional(string()),
+  variables: optional(object()),
+  trigger_variables: optional(object()),
 });
 
 const automationConfigStruct = union([
@@ -72,13 +83,15 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
 
   protected renderContent() {
     return html`
-      ${this.config.description
-        ? html`<ha-markdown
-            class="description"
-            breaks
-            .content=${this.config.description}
-          ></ha-markdown>`
-        : nothing}
+      ${
+        this.config.description
+          ? html`<ha-markdown
+              class="description"
+              breaks
+              .content=${this.config.description}
+            ></ha-markdown>`
+          : nothing
+      }
       <div class="header">
         <h2 id="triggers-heading" class="name">
           ${this.hass.localize(
@@ -86,13 +99,15 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
           )}
         </h2>
       </div>
-      ${!ensureArray(this.config.triggers)?.length
-        ? html`<p>
-            ${this.hass.localize(
-              "ui.panel.config.automation.editor.triggers.description"
-            )}
-          </p>`
-        : nothing}
+      ${
+        !ensureArray(this.config.triggers)?.length
+          ? html`<p>
+              ${this.hass.localize(
+                "ui.panel.config.automation.editor.triggers.description"
+              )}
+            </p>`
+          : nothing
+      }
 
       <ha-automation-trigger
         role="region"
@@ -121,14 +136,16 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
           >
         </h2>
       </div>
-      ${!ensureArray(this.config.conditions)?.length
-        ? html`<p>
-            ${this.hass.localize(
-              "ui.panel.config.automation.editor.conditions.description",
-              { user: this.hass.user?.name || "Alice" }
-            )}
-          </p>`
-        : nothing}
+      ${
+        !ensureArray(this.config.conditions)?.length
+          ? html`<p>
+              ${this.hass.localize(
+                "ui.panel.config.automation.editor.conditions.description",
+                { user: this.hass.user?.name || "Alice" }
+              )}
+            </p>`
+          : nothing
+      }
 
       <ha-automation-condition
         role="region"
@@ -154,13 +171,15 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
           )}
         </h2>
       </div>
-      ${!ensureArray(this.config.actions)?.length
-        ? html`<p>
-            ${this.hass.localize(
-              "ui.panel.config.automation.editor.actions.description"
-            )}
-          </p>`
-        : nothing}
+      ${
+        !ensureArray(this.config.actions)?.length
+          ? html`<p>
+              ${this.hass.localize(
+                "ui.panel.config.automation.editor.actions.description"
+              )}
+            </p>`
+          : nothing
+      }
 
       <ha-automation-action
         role="region"
@@ -224,7 +243,7 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
 
     let loaded: any;
     try {
-      loaded = load(paste);
+      loaded = load(paste, { schema: YAML11_SCHEMA });
     } catch (_err: any) {
       showEditorToast(this, {
         message: this.hass.localize(
@@ -249,6 +268,27 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
       }
     }
 
+    // If an object can be ambiguously an action or an automation, check for
+    // toplevel automation keywords to disqualify it
+    function isQualifiedAction(cfg): boolean {
+      const type = getActionType(cfg);
+      if (type === "variables") {
+        if (
+          [
+            "trigger",
+            "triggers",
+            "condition",
+            "conditions",
+            "action",
+            "actions",
+          ].some((key) => key in cfg)
+        ) {
+          return false;
+        }
+      }
+      return type !== "unknown";
+    }
+
     if (Array.isArray(config)) {
       if (config.length === 1) {
         config = config[0];
@@ -268,7 +308,7 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
             found = true;
             (newConfig.conditions as Condition[]).push(cfg);
           }
-          if (getActionType(cfg) !== "unknown") {
+          if (isQualifiedAction(cfg)) {
             found = true;
             (newConfig.actions as Action[]).push(cfg);
           }
@@ -285,7 +325,7 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
     if (isCondition(config)) {
       config = { conditions: [config] };
     }
-    if (getActionType(config) !== "unknown") {
+    if (isQualifiedAction(config)) {
       config = { actions: [config] };
     }
 
@@ -367,20 +407,35 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
     if (!workingCopy) {
       return;
     }
+    ["variables", "trigger_variables"].forEach((key) => {
+      if (key in config) {
+        workingCopy[key] = { ...workingCopy[key], ...config[key] };
+      }
+    });
 
+    let appendedConfig = config;
     if ("triggers" in config) {
+      const pastedTriggers = ensureArray(config.triggers);
+      // Strip generated trigger IDs and remove matching references from pasted
+      // conditions/actions so they do not dangle against the stripped triggers.
+      const strippedIds = new Set(
+        getExplicitTriggerIds(pastedTriggers).filter(isGeneratedTriggerId)
+      );
+      appendedConfig = strippedIds.size
+        ? cleanupRemovedGeneratedTriggerReferences(config, strippedIds)
+        : config;
       workingCopy.triggers = ensureArray(workingCopy.triggers || []).concat(
-        ensureArray(config.triggers)
+        pastedTriggers.map((t) => stripGeneratedTriggerIds(t))
       );
     }
-    if ("conditions" in config) {
+    if ("conditions" in appendedConfig) {
       workingCopy.conditions = ensureArray(workingCopy.conditions || []).concat(
-        ensureArray(config.conditions)
+        ensureArray(appendedConfig.conditions)
       );
     }
-    if ("actions" in config) {
+    if ("actions" in appendedConfig) {
       workingCopy.actions = ensureArray(workingCopy.actions || []).concat(
-        ensureArray(config.actions)
+        ensureArray(appendedConfig.actions)
       ) as Action[];
     }
 
@@ -395,6 +450,7 @@ export class HaManualAutomationEditor extends ManualEditorMixin<ManualAutomation
 
   protected showPastedToastWithUndo() {
     showEditorToast(this, {
+      id: PASTED_CONFIG_TOAST_ID,
       message: this.hass.localize(
         "ui.panel.config.automation.editor.paste_toast_message"
       ),

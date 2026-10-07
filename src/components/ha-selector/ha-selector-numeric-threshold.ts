@@ -1,8 +1,8 @@
-import memoizeOne from "memoize-one";
+import { mdiChartBellCurveCumulative } from "@mdi/js";
 import type { PropertyValues } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
-import { mdiChartBellCurveCumulative } from "@mdi/js";
+import memoizeOne from "memoize-one";
 import { fireEvent } from "../../common/dom/fire_event";
 import type {
   NumericThresholdSelector,
@@ -28,14 +28,14 @@ const iconThresholdOutside =
 
 type ThresholdType = "above" | "below" | "between" | "outside" | "any";
 
-interface ThresholdValueEntry {
+export interface ThresholdValueEntry {
   active_choice?: string;
   number?: number;
   entity?: string;
   unit_of_measurement?: string;
 }
 
-interface NumericThresholdValue {
+export interface NumericThresholdValue {
   type: ThresholdType;
   value?: ThresholdValueEntry;
   value_min?: ThresholdValueEntry;
@@ -152,9 +152,11 @@ export class HaNumericThresholdSelector extends LitElement {
 
     return html`
       <div class="container">
-        ${this.label
-          ? html`<label>${this.label}${this.required ? "*" : ""}</label>`
-          : nothing}
+        ${
+          this.label
+            ? html`<label>${this.label}${this.required ? "*" : ""}</label>`
+            : nothing
+        }
         <div class="inputs">
           <ha-select
             .label=${typeSelectLabel}
@@ -164,47 +166,53 @@ export class HaNumericThresholdSelector extends LitElement {
             @selected=${this._typeChanged}
           ></ha-select>
 
-          ${showSingleValue
-            ? this._renderValueRow(
-                singleValueLabel,
-                this.value?.value,
-                this._valueChanged,
-                this._valueChoiceChanged,
-                this._unitChanged,
-                unitOptions,
-                choiceToggleButtons
-              )
-            : nothing}
-          ${showRangeValues
-            ? html`
-                ${this._renderValueRow(
-                  this.hass.localize(
-                    "ui.components.selectors.numeric_threshold.from"
-                  ),
-                  this.value?.value_min,
-                  this._valueMinChanged,
-                  this._valueMinChoiceChanged,
-                  this._unitMinChanged,
+          ${
+            showSingleValue
+              ? this._renderValueRow(
+                  singleValueLabel,
+                  this.value?.value,
+                  this._valueChanged,
+                  this._valueChoiceChanged,
+                  this._unitChanged,
                   unitOptions,
                   choiceToggleButtons
-                )}
-                ${this._renderValueRow(
-                  this.hass.localize(
-                    "ui.components.selectors.numeric_threshold.to"
-                  ),
-                  this.value?.value_max,
-                  this._valueMaxChanged,
-                  this._valueMaxChoiceChanged,
-                  this._unitMaxChanged,
-                  unitOptions,
-                  choiceToggleButtons
-                )}
-              `
-            : nothing}
+                )
+              : nothing
+          }
+          ${
+            showRangeValues
+              ? html`
+                  ${this._renderValueRow(
+                    this.hass.localize(
+                      "ui.components.selectors.numeric_threshold.from"
+                    ),
+                    this.value?.value_min,
+                    this._valueMinChanged,
+                    this._valueMinChoiceChanged,
+                    this._unitMinChanged,
+                    unitOptions,
+                    choiceToggleButtons
+                  )}
+                  ${this._renderValueRow(
+                    this.hass.localize(
+                      "ui.components.selectors.numeric_threshold.to"
+                    ),
+                    this.value?.value_max,
+                    this._valueMaxChanged,
+                    this._valueMaxChoiceChanged,
+                    this._unitMaxChanged,
+                    unitOptions,
+                    choiceToggleButtons
+                  )}
+                `
+              : nothing
+          }
         </div>
-        ${this.helper
-          ? html`<ha-input-helper-text>${this.helper}</ha-input-helper-text>`
-          : nothing}
+        ${
+          this.helper
+            ? html`<ha-input-helper-text>${this.helper}</ha-input-helper-text>`
+            : nothing
+        }
       </div>
     `;
   }
@@ -301,11 +309,13 @@ export class HaNumericThresholdSelector extends LitElement {
     return html`
       <div class="value-row">
         <div class="value-header">
-          ${rowLabel
-            ? html`<span class="value-label"
-                >${rowLabel}${this.required ? "*" : ""}</span
-              >`
-            : nothing}
+          ${
+            rowLabel
+              ? html`<span class="value-label"
+                  >${rowLabel}${this.required ? "*" : ""}</span
+                >`
+              : nothing
+          }
           <ha-button-toggle-group
             size="s"
             .buttons=${choiceToggleButtons}
@@ -324,9 +334,11 @@ export class HaNumericThresholdSelector extends LitElement {
             .required=${this.required}
             @value-changed=${onValueChanged}
           ></ha-selector>
-          ${showUnit
-            ? this._renderUnitSelect(entry, onUnitChanged, unitOptions!)
-            : nothing}
+          ${
+            showUnit
+              ? this._renderUnitSelect(entry, onUnitChanged, unitOptions!)
+              : nothing
+          }
         </div>
       </div>
     `;

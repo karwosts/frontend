@@ -123,6 +123,10 @@ interface EMOutgoingMessageConnectionStatus extends EMMessage {
   payload: { event: string };
 }
 
+interface EMOutgoingMessageFrontendLoaded extends EMMessage {
+  type: "frontend/loaded"; // Fired once the launch screen is removed; with hasSplashscreen this is after the first panel has rendered
+}
+
 interface EMOutgoingMessageAppConfiguration extends EMMessage {
   type: "config_screen/show";
 }
@@ -180,11 +184,38 @@ interface EMOutgoingMessageAddEntityTo extends EMMessage {
   };
 }
 
+interface EMOutgoingMessageEntityControlled extends EMMessage {
+  type: "entity/controlled";
+  payload: {
+    entity_ids: string[];
+    domain: string;
+    service: string;
+  };
+}
+
+interface EMOutgoingMessageMoreInfoOpened extends EMMessage {
+  type: "more_info/opened";
+  payload: {
+    entity_id: string;
+  };
+}
+
+interface EMOutgoingMessageMoreInfoClosed extends EMMessage {
+  type: "more_info/closed";
+  payload: {
+    entity_id: string;
+  };
+}
+
 interface EMOutgoingMessageFocusElement extends EMMessage {
   type: "focus_element";
   payload: {
     element_id: string;
   };
+}
+
+interface EMOutgoingMessageReloadAndClearCache extends EMMessage {
+  type: "frontend/reload_and_clear_cache";
 }
 
 // These types are handled internally by the Android app via postMessage.
@@ -201,12 +232,15 @@ type EMOutgoingMessageWithoutAnswer =
   | EMOutgoingMessageBarCodeNotify
   | EMOutgoingMessageBarCodeScan
   | EMOutgoingMessageConnectionStatus
+  | EMOutgoingMessageFrontendLoaded
   | EMOutgoingMessageExoplayerPlayHLS
   | EMOutgoingMessageExoplayerResize
   | EMOutgoingMessageExoplayerStop
   | EMOutgoingMessageHaptic
   | EMOutgoingMessageImportThreadCredentials
   | EMOutgoingMessageMatterCommission
+  | EMOutgoingMessageMoreInfoOpened
+  | EMOutgoingMessageMoreInfoClosed
   | EMOutgoingMessageSidebarShow
   | EMOutgoingMessageTagWrite
   | EMOutgoingMessageThemeUpdate
@@ -214,7 +248,9 @@ type EMOutgoingMessageWithoutAnswer =
   | EMOutgoingMessageImprovScan
   | EMOutgoingMessageImprovConfigureDevice
   | EMOutgoingMessageAddEntityTo
+  | EMOutgoingMessageEntityControlled
   | EMOutgoingMessageFocusElement
+  | EMOutgoingMessageReloadAndClearCache
   | EMOutgoingMessageAssistSettings;
 
 export interface EMIncomingMessageRestart {
@@ -347,9 +383,7 @@ export type EMIncomingMessageCommands =
   | EMIncomingMessageKioskModeSet;
 
 type EMIncomingMessage =
-  | EMMessageResultSuccess
-  | EMMessageResultError
-  | EMIncomingMessageCommands;
+  EMMessageResultSuccess | EMMessageResultError | EMIncomingMessageCommands;
 
 type EMIncomingMessageHandler = (msg: EMIncomingMessageCommands) => boolean;
 
@@ -368,6 +402,7 @@ export interface ExternalConfig {
   appVersion?: string;
   hasEntityAddTo?: boolean; // Supports "Add to" from more-info dialog, with action coming from external app
   hasAssistSettings?: boolean; // Shows the "This device" section in voice assistant settings
+  hasSplashscreen?: boolean; // App covers the frontend with its own loading screen until frontend/loaded, so the launch screen is removed without animation
 }
 
 export interface ExternalEntityAddToAction {
@@ -507,14 +542,26 @@ export class ExternalMessaging {
       // eslint-disable-next-line no-console
       console.log("Sending message to external app", msg);
     }
-    if (window.externalAppV2) {
-      window.externalAppV2.postMessage(
-        JSON.stringify({ type: "externalBus", payload: msg })
-      );
-    } else if (window.externalApp) {
-      window.externalApp.externalBus(JSON.stringify(msg));
-    } else {
-      window.webkit!.messageHandlers.externalBus.postMessage(msg);
-    }
+    fireExternalBusMessage(msg);
   }
 }
+
+/**
+ * Post a message to the companion app's external bus without needing an
+ * `ExternalMessaging` instance (i.e. without `hass`). Returns `false` when no
+ * external bridge is present, so callers can fall back to browser behavior.
+ */
+export const fireExternalBusMessage = (msg: EMMessage): boolean => {
+  if (window.externalAppV2) {
+    window.externalAppV2.postMessage(
+      JSON.stringify({ type: CALLBACK_EXTERNAL_BUS, payload: msg })
+    );
+  } else if (window.externalApp) {
+    window.externalApp.externalBus(JSON.stringify(msg));
+  } else if (window.webkit?.messageHandlers?.externalBus) {
+    window.webkit.messageHandlers.externalBus.postMessage(msg);
+  } else {
+    return false;
+  }
+  return true;
+};

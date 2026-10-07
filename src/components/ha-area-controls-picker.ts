@@ -3,8 +3,7 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, property } from "lit/decorators";
 import Fuse from "fuse.js";
 import memoizeOne from "memoize-one";
-import { computeEntityNameList } from "../common/entity/compute_entity_name_display";
-import { computeRTL } from "../common/util/compute_rtl";
+import { computeEntityPickerDisplay } from "../common/entity/compute_entity_name_display";
 import type { LocalizeFunc } from "../common/translations/localize";
 import {
   multiTermSortedSearch,
@@ -173,7 +172,6 @@ export class HaAreaControlsPicker extends LitElement {
             domainItems = multiTermSortedSearch(
               domainItems,
               searchString,
-              this._domainSearchKeys,
               (item) => item.id,
               fuseIndex
             );
@@ -184,11 +182,6 @@ export class HaAreaControlsPicker extends LitElement {
           const allEntityIds = Object.values(controlEntities).flat();
           const uniqueEntityIds = Array.from(new Set(allEntityIds));
 
-          const isRTL = computeRTL(
-            this.hass.language,
-            this.hass.translationMetadata.translations
-          );
-
           uniqueEntityIds.forEach((entityId) => {
             if (isSelected(entityId)) {
               return;
@@ -198,19 +191,10 @@ export class HaAreaControlsPicker extends LitElement {
               return;
             }
 
-            const [entityName, deviceName, areaName] = computeEntityNameList(
-              stateObj,
-              [{ type: "entity" }, { type: "device" }, { type: "area" }],
-              this.hass!.entities,
-              this.hass!.devices,
-              this.hass!.areas,
-              this.hass!.floors
+            const { primary, secondary } = computeEntityPickerDisplay(
+              this.hass!,
+              stateObj
             );
-
-            const primary = entityName || deviceName || entityId;
-            const secondary = [areaName, entityName ? deviceName : undefined]
-              .filter(Boolean)
-              .join(isRTL ? " ◂ " : " ▸ ");
 
             entityItems.push({
               type: "entity",
@@ -226,7 +210,6 @@ export class HaAreaControlsPicker extends LitElement {
             entityItems = multiTermSortedSearch(
               entityItems,
               searchString,
-              this._entitySearchKeys,
               (item) => item.id,
               fuseIndex
             );
@@ -260,28 +243,34 @@ export class HaAreaControlsPicker extends LitElement {
   );
 
   private _rowRenderer = (item: AreaControlPickerItem) => html`
-    <ha-combo-box-item type="button" compact>
-      ${item.type === "entity" && item.stateObj
-        ? html`<ha-state-icon
-            slot="start"
-            .stateObj=${item.stateObj}
-          ></ha-state-icon>`
-        : item.domain
-          ? html`<ha-domain-icon
+    <ha-combo-box-item>
+      ${
+        item.type === "entity" && item.stateObj
+          ? html`<ha-state-icon
               slot="start"
-              .domain=${item.domain}
-              .deviceClass=${item.deviceClass}
-            ></ha-domain-icon>`
-          : nothing}
+              .stateObj=${item.stateObj}
+            ></ha-state-icon>`
+          : item.domain
+            ? html`<ha-domain-icon
+                slot="start"
+                .domain=${item.domain}
+                .deviceClass=${item.deviceClass}
+              ></ha-domain-icon>`
+            : nothing
+      }
       <span slot="headline">${item.primary}</span>
-      ${item.secondary
-        ? html`<span slot="supporting-text">${item.secondary}</span>`
-        : nothing}
-      ${item.type === "entity" && item.stateObj
-        ? html`<span slot="supporting-text" class="code">
-            ${item.stateObj.entity_id}
-          </span>`
-        : nothing}
+      ${
+        item.secondary
+          ? html`<span slot="supporting-text">${item.secondary}</span>`
+          : nothing
+      }
+      ${
+        item.type === "entity" && item.stateObj
+          ? html`<span slot="supporting-text" class="code">
+              ${item.stateObj.entity_id}
+            </span>`
+          : nothing
+      }
     </ha-combo-box-item>
   `;
 

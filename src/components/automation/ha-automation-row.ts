@@ -41,16 +41,18 @@ export class HaAutomationRow extends LitElement {
         role="button"
         @keydown=${this._handleKeydown}
       >
-        ${this.leftChevron
-          ? html`
-              <ha-icon-button
-                class="expand-button"
-                .path=${mdiChevronUp}
-                @click=${this._handleExpand}
-                @keydown=${this._handleExpand}
-              ></ha-icon-button>
-            `
-          : nothing}
+        ${
+          this.leftChevron
+            ? html`
+                <ha-icon-button
+                  class="expand-button"
+                  .path=${mdiChevronUp}
+                  @click=${this._handleExpand}
+                  @keydown=${this._handleExpand}
+                ></ha-icon-button>
+              `
+            : nothing
+        }
         <div class="leading-icon-wrapper">
           <slot name="leading-icon"></slot>
         </div>
@@ -150,7 +152,7 @@ export class HaAutomationRow extends LitElement {
       margin-inline-end: initial;
     }
     :host([building-block]) .leading-icon-wrapper {
-      background-color: var(--ha-color-fill-neutral-loud-resting);
+      border: 1px solid var(--ha-color-border-neutral-normal);
       border-radius: var(--ha-border-radius-md);
       padding: var(--ha-space-1);
       margin-top: 10px;
@@ -170,7 +172,6 @@ export class HaAutomationRow extends LitElement {
     :host([building-block]) ::slotted([slot="leading-icon"].action-icon),
     :host([building-block]) ::slotted(#condition-icon) {
       --mdc-icon-size: var(--ha-space-5);
-      color: var(--white-color);
       transform: rotate(-45deg);
     }
     :host([collapsed]) .expand-button {
@@ -183,9 +184,16 @@ export class HaAutomationRow extends LitElement {
       outline-offset: -2px;
       outline-width: 2px;
     }
-    :host([disabled]) .row {
-      border-top-right-radius: var(--ha-border-radius-square);
-      border-top-left-radius: var(--ha-border-radius-square);
+    :host([disabled]) .row,
+    :host([disabled]) ::slotted([slot="leading-icon"]) {
+      color: var(--ha-color-text-disabled);
+    }
+    :host([disabled]) .leading-icon-wrapper {
+      opacity: 0.8;
+    }
+    :host([disabled]) ::slotted([slot="header"]) {
+      opacity: 0.8;
+      text-decoration: line-through;
     }
     .header {
       position: relative;

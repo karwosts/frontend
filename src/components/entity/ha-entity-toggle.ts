@@ -1,9 +1,10 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import { mdiFlash, mdiFlashOff } from "@mdi/js";
 import type { HassEntity } from "home-assistant-js-websocket";
 import type { PropertyValues, TemplateResult } from "lit";
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../../common/decorators/consume";
 import { STATES_OFF } from "../../common/const";
 import { computeStateDomain } from "../../common/entity/compute_state_domain";
 import { computeStateName } from "../../common/entity/compute_state_name";
@@ -13,6 +14,7 @@ import { forwardHaptic } from "../../data/haptics";
 import "../ha-formfield";
 import "../ha-icon-button";
 import "../ha-switch";
+import { getToggleAction } from "../../common/entity/get_toggle_action";
 
 const isOn = (stateObj?: HassEntity) =>
   stateObj !== undefined &&
@@ -54,9 +56,9 @@ export class HaEntityToggle extends LitElement {
           .path=${mdiFlashOff}
           .disabled=${this.stateObj.state === UNAVAILABLE}
           @click=${this._turnOff}
-          class=${!this._isOn && this.stateObj.state !== UNKNOWN
-            ? "state-active"
-            : ""}
+          class=${
+            !this._isOn && this.stateObj.state !== UNKNOWN ? "state-active" : ""
+          }
         ></ha-icon-button>
         <ha-icon-button
           .label=${`Turn ${computeStateName(this.stateObj)} on`}
@@ -124,25 +126,10 @@ export class HaEntityToggle extends LitElement {
     }
     forwardHaptic(this, "light");
     const stateDomain = computeStateDomain(this.stateObj);
-    let serviceDomain;
-    let service;
 
-    if (stateDomain === "lock") {
-      serviceDomain = "lock";
-      service = turnOn ? "unlock" : "lock";
-    } else if (stateDomain === "cover") {
-      serviceDomain = "cover";
-      service = turnOn ? "open_cover" : "close_cover";
-    } else if (stateDomain === "valve") {
-      serviceDomain = "valve";
-      service = turnOn ? "open_valve" : "close_valve";
-    } else if (stateDomain === "group") {
-      serviceDomain = "homeassistant";
-      service = turnOn ? "turn_on" : "turn_off";
-    } else {
-      serviceDomain = stateDomain;
-      service = turnOn ? "turn_on" : "turn_off";
-    }
+    const serviceDomain =
+      stateDomain === "group" ? "homeassistant" : stateDomain;
+    const service = getToggleAction(stateDomain, turnOn);
 
     const currentState = this.stateObj;
 

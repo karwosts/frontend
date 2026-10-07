@@ -1,9 +1,10 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import { ifDefined } from "lit/directives/if-defined";
 import { styleMap } from "lit/directives/style-map";
+import { consume } from "../common/decorators/consume";
 import { fireEvent } from "../common/dom/fire_event";
 import { computeRTL } from "../common/util/compute_rtl";
 import { internationalizationContext, uiContext } from "../data/context";
@@ -56,6 +57,7 @@ export class HaSelectBox extends LitElement {
         class="list"
         style=${styleMap({ "--columns": columns })}
         .value=${this.value}
+        ?disabled=${this.disabled}
         @change=${this._radioChanged}
       >
         ${this.options.map((option) => this._renderOption(option))}
@@ -100,24 +102,32 @@ export class HaSelectBox extends LitElement {
             )}
             aria-labelledby=${`label-${option.value}`}
             .value=${option.value}
-            .disabled=${disabled}
+            .disabled=${option.disabled || false}
           ></ha-radio-option>
           <div class="text">
             <span id=${`label-${option.value}`} class="label"
               >${option.label}</span
             >
-            ${option.description
-              ? html`<span class="description" id="desc-${option.value}"
-                  >${option.description}</span
-                >`
-              : nothing}
+            ${
+              option.description
+                ? html`<span class="description" id="desc-${option.value}"
+                    >${option.description}</span
+                  >`
+                : nothing
+            }
           </div>
         </div>
-        ${imageSrc
-          ? html`
-              <img class=${imageFlip ? "flipped" : ""} alt="" src=${imageSrc} />
-            `
-          : nothing}
+        ${
+          imageSrc
+            ? html`
+                <img
+                  class=${imageFlip ? "flipped" : ""}
+                  alt=""
+                  src=${imageSrc}
+                />
+              `
+            : nothing
+        }
       </label>
     `;
   }

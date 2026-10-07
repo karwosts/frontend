@@ -3,6 +3,7 @@ import type {
   HassServiceTarget,
 } from "home-assistant-js-websocket";
 import { ensureArray } from "../common/array/ensure-array";
+import type { DurationUnits } from "../common/datetime/normalize_duration";
 import type { EntityNameItem } from "../common/entity/compute_entity_name_display";
 import { computeStateDomain } from "../common/entity/compute_state_domain";
 import { supportsFeature } from "../common/entity/supports-feature";
@@ -14,6 +15,7 @@ import type {
 import type { HomeAssistant } from "../types";
 import {
   type DeviceRegistryEntry,
+  devicesInEffectiveArea,
   getDeviceIntegrationLookup,
 } from "./device/device_registry";
 import type {
@@ -47,6 +49,7 @@ export type Selector =
   | DeviceSelector
   | FloorSelector
   | LegacyDeviceSelector
+  | DeviceClassSelector
   | DurationSelector
   | EntitySelector
   | EntityNameSelector
@@ -66,6 +69,7 @@ export type Selector =
   | QRCodeSelector
   | SelectSelector
   | SelectorSelector
+  | StateClassSelector
   | StateSelector
   | StatisticSelector
   | StringSelector
@@ -80,10 +84,25 @@ export type Selector =
   | TTSVoiceSelector
   | SerialPortSelector
   | UiActionSelector
+  | UiClockDateFormatSelector
   | UiColorSelector
   | UiStateContentSelector
   | UiTimeFormatSelector
   | BackupLocationSelector;
+
+type KeysOfUnion<T> = T extends T ? keyof T : never;
+export type SelectorType = KeysOfUnion<Selector>;
+
+type UnionMemberWithKey<U, K extends PropertyKey> = U extends unknown
+  ? K extends keyof U
+    ? U
+    : never
+  : never;
+
+export type SelectorForType<T extends SelectorType> = UnionMemberWithKey<
+  Selector,
+  T
+>;
 
 export interface ActionSelector {
   action: {
@@ -131,8 +150,7 @@ export type AutomationBehaviorTriggerMode = "first" | "all" | "each";
 export type AutomationBehaviorConditionMode = "all" | "any";
 
 export type AutomationBehavior =
-  | AutomationBehaviorTriggerMode
-  | AutomationBehaviorConditionMode;
+  AutomationBehaviorTriggerMode | AutomationBehaviorConditionMode;
 
 export interface AutomationBehaviorSelector {
   automation_behavior: {
@@ -249,14 +267,30 @@ export interface LegacyDeviceSelector {
   };
 }
 
+export type DurationSelectorMode = "positive" | "signed" | "offset";
+
 export interface DurationSelector {
   duration: {
     enable_day?: boolean;
     enable_millisecond?: boolean;
     allow_negative?: boolean;
     enable_second?: boolean;
+    mode?: DurationSelectorMode;
   } | null;
 }
+
+export const getDurationSelectorMode = (
+  config: DurationSelector["duration"]
+): DurationSelectorMode =>
+  config?.mode ?? (config?.allow_negative ? "signed" : "positive");
+
+export const getDurationSelectorUnits = (
+  config: DurationSelector["duration"]
+): DurationUnits => ({
+  enableDay: !!config?.enable_day,
+  enableSecond: config?.enable_second ?? true,
+  enableMillisecond: !!config?.enable_millisecond,
+});
 
 interface EntitySelectorFilter {
   integration?: string;
@@ -264,6 +298,10 @@ interface EntitySelectorFilter {
   device_class?: string | readonly string[];
   supported_features?: number | [number];
   unit_of_measurement?: string | readonly string[];
+}
+
+interface EntitySelectorEntityFilter extends EntitySelectorFilter {
+  device?: DeviceSelectorFilter;
 }
 
 export interface EntitySelectorExtraOption {
@@ -281,7 +319,7 @@ export interface EntitySelector {
     multiple?: boolean;
     include_entities?: string[];
     exclude_entities?: string[];
-    filter?: EntitySelectorFilter | readonly EntitySelectorFilter[];
+    filter?: EntitySelectorEntityFilter | readonly EntitySelectorEntityFilter[];
     reorder?: boolean;
     extra_options?: EntitySelectorExtraOption[];
   } | null;
@@ -347,6 +385,10 @@ export interface LocationSelector {
     radius?: boolean;
     radius_readonly?: boolean;
     icon?: string;
+    /** Name whose initials the marker shows when there is no icon */
+    name?: string;
+    /** Marker and radius color; defaults to the theme's zone color */
+    color?: string;
   } | null;
 }
 
@@ -360,9 +402,9 @@ export interface MediaSelector {
   media: {
     accept?: string[];
     image_upload?: boolean;
-    clearable?: boolean;
     hide_content_type?: boolean;
     content_id_helper?: string;
+    multiple?: boolean;
   } | null;
 }
 
@@ -393,6 +435,9 @@ export interface NumberSelector {
     unit_of_measurement?: string;
     slider_ticks?: boolean;
     translation_key?: string;
+    // Shown instead of the browser's native message when the value fails
+    // min/max/step constraint validation.
+    validation_message?: string;
   } | null;
 }
 
@@ -410,6 +455,7 @@ interface ObjectSelectorField {
   label?: string;
   description?: string;
   required?: boolean;
+  default?: unknown;
 }
 
 export interface ObjectSelector {
@@ -476,6 +522,13 @@ export interface SelectSelector {
   } | null;
 }
 
+export interface DeviceClassSelector {
+  device_class: {
+    domain: string;
+    multiple?: boolean;
+  } | null;
+}
+
 export interface SelectorSelector {
   selector: {} | null;
 }
@@ -483,6 +536,13 @@ export interface SelectorSelector {
 export interface SerialPortSelector {
   serial_port: {
     extra_recommended_domains?: string[];
+  } | null;
+}
+
+export interface StateClassSelector {
+  state_class: {
+    multiple?: boolean;
+    state_classes?: string[];
   } | null;
 }
 
@@ -531,6 +591,10 @@ export interface StringSelector {
     placeholder?: string;
     autocomplete?: string;
     multiple?: true;
+    // Regular expression the value must match (HTML `pattern`); with `multiple`
+    // every entry is validated. `validation_message` is shown when it fails.
+    pattern?: string;
+    validation_message?: string;
   } | null;
 }
 
@@ -578,6 +642,10 @@ export interface UiActionSelector {
   } | null;
 }
 
+export interface UiClockDateFormatSelector {
+  ui_clock_date_format: {} | null;
+}
+
 export interface UiColorExtraOption {
   value: string;
   label: string;
@@ -619,8 +687,7 @@ export const expandLabelTarget = (
   areas: HomeAssistant["areas"],
   devices: HomeAssistant["devices"],
   entities: HomeAssistant["entities"],
-  targetSelector: TargetSelector,
-  entitySources?: EntitySources
+  targetSelector: TargetSelector
 ) => {
   const newEntities: string[] = [];
   const newDevices: string[] = [];
@@ -634,8 +701,7 @@ export const expandLabelTarget = (
         entities,
         devices,
         area.area_id,
-        targetSelector,
-        entitySources
+        targetSelector
       )
     ) {
       newAreas.push(area.area_id);
@@ -649,8 +715,7 @@ export const expandLabelTarget = (
         hass.states,
         Object.values(entities),
         device,
-        targetSelector,
-        entitySources
+        targetSelector
       )
     ) {
       newDevices.push(device.id);
@@ -663,7 +728,9 @@ export const expandLabelTarget = (
       entityMeetsTargetSelector(
         hass.states[entity.entity_id],
         targetSelector,
-        entitySources
+        undefined,
+        hass.entities,
+        hass.devices
       )
     ) {
       newEntities.push(entity.entity_id);
@@ -677,8 +744,7 @@ export const expandFloorTarget = (
   hass: HomeAssistant,
   floorId: string,
   areas: HomeAssistant["areas"],
-  targetSelector: TargetSelector,
-  entitySources?: EntitySources
+  targetSelector: TargetSelector
 ) => {
   const newAreas: string[] = [];
   Object.values(areas).forEach((area) => {
@@ -689,8 +755,7 @@ export const expandFloorTarget = (
         hass.entities,
         hass.devices,
         area.area_id,
-        targetSelector,
-        entitySources
+        targetSelector
       )
     ) {
       newAreas.push(area.area_id);
@@ -704,20 +769,19 @@ export const expandAreaTarget = (
   areaId: string,
   devices: HomeAssistant["devices"],
   entities: HomeAssistant["entities"],
-  targetSelector: TargetSelector,
-  entitySources?: EntitySources
+  targetSelector: TargetSelector
 ) => {
   const newEntities: string[] = [];
   const newDevices: string[] = [];
-  Object.values(devices).forEach((device) => {
+  // Devices of an area are its effective-area members: a child device inheriting
+  // this area counts, a child with a different explicit area does not.
+  devicesInEffectiveArea(devices, areaId).forEach((device) => {
     if (
-      device.area_id === areaId &&
       deviceMeetsTargetSelector(
         hass.states,
         Object.values(entities),
         device,
-        targetSelector,
-        entitySources
+        targetSelector
       )
     ) {
       newDevices.push(device.id);
@@ -729,7 +793,9 @@ export const expandAreaTarget = (
       entityMeetsTargetSelector(
         hass.states[entity.entity_id],
         targetSelector,
-        entitySources
+        undefined,
+        hass.entities,
+        hass.devices
       )
     ) {
       newEntities.push(entity.entity_id);
@@ -742,8 +808,7 @@ export const expandDeviceTarget = (
   hass: HomeAssistant,
   deviceId: string,
   entities: HomeAssistant["entities"],
-  targetSelector: TargetSelector,
-  entitySources?: EntitySources
+  targetSelector: TargetSelector
 ) => {
   const newEntities: string[] = [];
   Object.values(entities).forEach((entity) => {
@@ -752,7 +817,9 @@ export const expandDeviceTarget = (
       entityMeetsTargetSelector(
         hass.states[entity.entity_id],
         targetSelector,
-        entitySources
+        undefined,
+        hass.entities,
+        hass.devices
       )
     ) {
       newEntities.push(entity.entity_id);
@@ -766,24 +833,17 @@ export const areaMeetsTargetSelector = (
   entities: HomeAssistant["entities"],
   devices: HomeAssistant["devices"],
   areaId: string,
-  targetSelector: TargetSelector,
-  entitySources?: EntitySources
+  targetSelector: TargetSelector
 ): boolean => {
-  const hasMatchingdevice = Object.values(devices).some((device) => {
-    if (
-      device.area_id === areaId &&
+  const hasMatchingdevice = devicesInEffectiveArea(devices, areaId).some(
+    (device) =>
       deviceMeetsTargetSelector(
         hass.states,
         Object.values(entities),
         device,
-        targetSelector,
-        entitySources
+        targetSelector
       )
-    ) {
-      return true;
-    }
-    return false;
-  });
+  );
   if (hasMatchingdevice) {
     return true;
   }
@@ -793,7 +853,9 @@ export const areaMeetsTargetSelector = (
       entityMeetsTargetSelector(
         hass.states[entity.entity_id],
         targetSelector,
-        entitySources
+        undefined,
+        hass.entities,
+        hass.devices
       )
     ) {
       return true;
@@ -806,16 +868,17 @@ export const deviceMeetsTargetSelector = (
   states: HomeAssistant["states"],
   entityRegistry: EntityRegistryDisplayEntry[] | EntityRegistryEntry[],
   device: DeviceRegistryEntry,
-  targetSelector: TargetSelector,
-  entitySources?: EntitySources
+  targetSelector: TargetSelector
 ): boolean => {
-  const deviceIntegrationLookup = entitySources
-    ? getDeviceIntegrationLookup(entitySources, entityRegistry)
-    : undefined;
-
   if (targetSelector.target?.device) {
+    const filterDevices = ensureArray(targetSelector.target.device);
+    const deviceIntegrationLookup = filterDevices.some(
+      (filterDevice) => filterDevice.integration
+    )
+      ? getDeviceIntegrationLookup(entityRegistry)
+      : undefined;
     if (
-      !ensureArray(targetSelector.target.device).some((filterDevice) =>
+      !filterDevices.some((filterDevice) =>
         filterSelectorDevices(filterDevice, device, deviceIntegrationLookup)
       )
     ) {
@@ -823,16 +886,14 @@ export const deviceMeetsTargetSelector = (
     }
   }
   if (targetSelector.target?.entity) {
+    // Only the device's own entities: a child device is reached through the
+    // device target itself, so a parent must not match on a child's behalf.
     const entities = entityRegistry.filter(
       (reg) => reg.device_id === device.id
     );
     return entities.some((entity) => {
       const entityState = states[entity.entity_id];
-      return entityMeetsTargetSelector(
-        entityState,
-        targetSelector,
-        entitySources
-      );
+      return entityMeetsTargetSelector(entityState, targetSelector);
     });
   }
   return true;
@@ -841,14 +902,22 @@ export const deviceMeetsTargetSelector = (
 export const entityMeetsTargetSelector = (
   entity: HassEntity | undefined,
   targetSelector: TargetSelector,
-  entitySources?: EntitySources
+  entitySources?: EntitySources,
+  entities?: HomeAssistant["entities"],
+  devices?: HomeAssistant["devices"]
 ): boolean => {
   if (!entity) {
     return false;
   }
   if (targetSelector.target?.entity) {
     return ensureArray(targetSelector.target!.entity).some((filterEntity) =>
-      filterSelectorEntities(filterEntity, entity, entitySources)
+      filterSelectorEntities(
+        filterEntity,
+        entity,
+        entitySources,
+        entities,
+        devices
+      )
     );
   }
   return true;
@@ -887,9 +956,12 @@ export const filterSelectorDevices = (
 };
 
 export const filterSelectorEntities = (
-  filterEntity: EntitySelectorFilter,
+  filterEntity: EntitySelectorEntityFilter,
   entity: HassEntity,
-  entitySources?: EntitySources
+  entitySources?: EntitySources,
+  entityRegistry?: HomeAssistant["entities"],
+  devices?: HomeAssistant["devices"],
+  deviceIntegrationLookup?: Record<string, Set<string>>
 ): boolean => {
   const {
     domain: filterDomain,
@@ -897,6 +969,7 @@ export const filterSelectorEntities = (
     supported_features: filterSupportedFeature,
     unit_of_measurement: filterUnitOfMeasurement,
     integration: filterIntegration,
+    device: filterDevice,
   } = filterEntity;
 
   if (filterDomain) {
@@ -943,9 +1016,28 @@ export const filterSelectorEntities = (
     }
   }
 
+  if (filterDevice) {
+    if (!entityRegistry || !devices) {
+      return false;
+    }
+
+    const deviceId = entityRegistry[entity.entity_id]?.device_id;
+    if (!deviceId) {
+      return false;
+    }
+    const device = devices[deviceId];
+    if (!device) {
+      return false;
+    }
+    if (!filterSelectorDevices(filterDevice, device, deviceIntegrationLookup)) {
+      return false;
+    }
+  }
+
   if (
     filterIntegration &&
-    entitySources?.[entity.entity_id]?.domain !== filterIntegration
+    (entityRegistry?.[entity.entity_id]?.platform ??
+      entitySources?.[entity.entity_id]?.domain) !== filterIntegration
   ) {
     return false;
   }
@@ -1012,7 +1104,7 @@ export const handleLegacyDeviceSelector = (
 export const computeCreateDomains = (
   selector: EntitySelector | TargetSelector
 ): undefined | string[] => {
-  let entityFilters: EntitySelectorFilter[] | undefined;
+  let entityFilters: EntitySelectorEntityFilter[] | undefined;
 
   if ("target" in selector) {
     entityFilters = ensureArray(selector.target?.entity);
@@ -1030,6 +1122,7 @@ export const computeCreateDomains = (
     !entityFilter.integration &&
     !entityFilter.device_class &&
     !entityFilter.supported_features &&
+    !entityFilter.device &&
     entityFilter.domain
       ? ensureArray(entityFilter.domain).filter((domain) =>
           isHelperDomain(domain)
@@ -1058,6 +1151,11 @@ export const resolveEntityIDs = (
   const targetFloors = new Set(ensureArray(targetPickerValue.floor_id));
   const targetLabels = new Set(ensureArray(targetPickerValue.label_id));
 
+  // Only a directly targeted device pulls in its child devices. Devices that are
+  // only reached through a label or an area must not, because core does not
+  // inherit labels to children and resolves areas by effective area membership.
+  const directDevices = new Set(targetDevices);
+
   targetLabels.forEach((labelId) => {
     const expanded = expandLabelTarget(
       hass,
@@ -1077,6 +1175,10 @@ export const resolveEntityIDs = (
     expanded.areas.forEach((id) => targetAreas.add(id));
   });
 
+  // Devices only reached through an area do not pull in entities that are
+  // explicitly assigned to another area, matching core.
+  const devicesNotViaArea = new Set(targetDevices);
+
   targetAreas.forEach((areaId) => {
     const expanded = expandAreaTarget(
       hass,
@@ -1089,6 +1191,16 @@ export const resolveEntityIDs = (
     expanded.entities.forEach((id) => targetEntities.add(id));
   });
 
+  // Targeting a device also targets its child devices, matching core's
+  // server-side target resolution. Only direct device targets expand this way;
+  // nesting is single-level, so one pass is enough.
+  Object.values(devices).forEach((device) => {
+    if (device.parent_device_id && directDevices.has(device.parent_device_id)) {
+      targetDevices.add(device.id);
+      devicesNotViaArea.add(device.id);
+    }
+  });
+
   targetDevices.forEach((deviceId) => {
     const expanded = expandDeviceTarget(
       hass,
@@ -1096,7 +1208,11 @@ export const resolveEntityIDs = (
       entities,
       targetSelector
     );
-    expanded.entities.forEach((id) => targetEntities.add(id));
+    expanded.entities.forEach((id) => {
+      if (devicesNotViaArea.has(deviceId) || !entities[id]?.area_id) {
+        targetEntities.add(id);
+      }
+    });
   });
 
   return Array.from(targetEntities);

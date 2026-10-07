@@ -18,9 +18,9 @@ import {
 import { showConfigFlowDialog } from "../../../dialogs/config-flow/show-dialog-config-flow";
 import type { HomeAssistant } from "../../../types";
 import { brandsUrl } from "../../../util/brands-url";
-import { fixStatisticsIssue } from "../developer-tools/statistics/fix-statistics";
+import { fixStatisticsIssue } from "../tools/statistics/fix-statistics";
 import { showVacuumSegmentMappingDialog } from "../entities/dialogs/show-dialog-vacuum-segment-mapping";
-import { showRepairsFlowDialog } from "./show-dialog-repair-flow";
+import { showRepairsFlowDialog } from "../../../dialogs/repairs-flow/show-dialog-repair-flow";
 import { showRepairsIssueDialog } from "./show-repair-issue-dialog";
 
 @customElement("ha-config-repairs")
@@ -80,38 +80,50 @@ class HaConfigRepairs extends LitElement {
                 referrerpolicy="no-referrer"
               />
               <span slot="headline">
-                ${this.hass.localize(
-                  `component.${issue.domain}.issues.${issue.translation_key || issue.issue_id}.title`,
-                  issue.translation_placeholders || {}
-                ) ||
-                `${issue.domain}: ${issue.translation_key || issue.issue_id}`}
+                ${
+                  this.hass.localize(
+                    `component.${issue.domain}.issues.${issue.translation_key || issue.issue_id}.title`,
+                    issue.translation_placeholders || {}
+                  ) ||
+                  `${issue.domain}: ${issue.translation_key || issue.issue_id}`
+                }
               </span>
               <span slot="supporting-text">
-                ${issue.severity === "critical" || issue.severity === "error"
-                  ? html`<span class="error"
-                      >${this.hass.localize(
-                        `ui.panel.config.repairs.${issue.severity}`
-                      )}</span
-                    >`
-                  : nothing}
-                ${(issue.severity === "critical" ||
-                  issue.severity === "error") &&
-                issue.created
-                  ? STRINGS_SEPARATOR_DOT
-                  : nothing}
-                ${createdBy
-                  ? html`<span .title=${createdBy}>${createdBy}</span>`
-                  : nothing}
-                ${issue.ignored
-                  ? ` · ${this.hass.localize(
-                      "ui.panel.config.repairs.dialog.ignored_in_version_short",
-                      { version: issue.dismissed_version }
-                    )}`
-                  : nothing}
+                ${
+                  issue.severity === "critical" || issue.severity === "error"
+                    ? html`<span class="error"
+                        >${this.hass.localize(
+                          `ui.panel.config.repairs.${issue.severity}`
+                        )}</span
+                      >`
+                    : nothing
+                }
+                ${
+                  (issue.severity === "critical" ||
+                    issue.severity === "error") &&
+                  issue.created
+                    ? STRINGS_SEPARATOR_DOT
+                    : nothing
+                }
+                ${
+                  createdBy
+                    ? html`<span .title=${createdBy}>${createdBy}</span>`
+                    : nothing
+                }
+                ${
+                  issue.ignored
+                    ? ` · ${this.hass.localize(
+                        "ui.panel.config.repairs.dialog.ignored_in_version_short",
+                        { version: issue.dismissed_version }
+                      )}`
+                    : nothing
+                }
               </span>
-              ${!this.narrow
-                ? html`<ha-icon-next slot="end"></ha-icon-next>`
-                : nothing}
+              ${
+                !this.narrow
+                  ? html`<ha-icon-next slot="end"></ha-icon-next>`
+                  : nothing
+              }
             </ha-list-item-button>
           `;
         })}
@@ -132,7 +144,7 @@ class HaConfigRepairs extends LitElement {
         issue.domain,
         issue.issue_id
       );
-      if ("flow_id" in data.issue_data) {
+      if (data.issue_data && "flow_id" in data.issue_data) {
         showConfigFlowDialog(this, {
           continueFlowId: data.issue_data.flow_id as string,
         });
@@ -147,6 +159,7 @@ class HaConfigRepairs extends LitElement {
         issue.issue_id
       );
       if (
+        data.issue_data &&
         "entity_id" in data.issue_data &&
         typeof data.issue_data.entity_id === "string"
       ) {
@@ -159,13 +172,13 @@ class HaConfigRepairs extends LitElement {
       issue.translation_key &&
       STATISTIC_TYPES.includes(issue.translation_key as any)
     ) {
-      this.hass.loadFragmentTranslation("developer-tools");
+      this.hass.loadFragmentTranslation("config");
       const data = await fetchRepairsIssueData(
         this.hass.connection,
         issue.domain,
         issue.issue_id
       );
-      if ("issue_type" in data.issue_data) {
+      if (data.issue_data && "issue_type" in data.issue_data) {
         await fixStatisticsIssue(this, {
           type: data.issue_data
             .issue_type as StatisticsValidationResult["type"],

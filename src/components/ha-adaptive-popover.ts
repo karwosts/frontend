@@ -89,9 +89,11 @@ export class HaAdaptivePopover extends ScrollLockMixin(HaAdaptiveDialog) {
         @wa-after-hide=${this._handlePopoverAfterHide}
       >
         <div class="popover-surface" @click=${this._handlePopoverClick}>
-          ${this.withoutHeader
-            ? nothing
-            : html`<slot name="header">${this._renderHeaderContent()}</slot>`}
+          ${
+            this.withoutHeader
+              ? nothing
+              : html`<slot name="header">${this._renderHeaderContent()}</slot>`
+          }
           <div class="content-wrapper">
             <div class="body"><slot></slot></div>
           </div>
@@ -291,12 +293,7 @@ export class HaAdaptivePopover extends ScrollLockMixin(HaAdaptiveDialog) {
           );
           overflow: hidden;
           color: var(--primary-text-color);
-          -webkit-backdrop-filter: var(
-            --ha-dialog-surface-backdrop-filter,
-            none
-          );
           backdrop-filter: var(--ha-dialog-surface-backdrop-filter, none);
-          -webkit-user-select: text;
           user-select: text;
         }
 

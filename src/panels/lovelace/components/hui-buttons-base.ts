@@ -1,8 +1,8 @@
-import { consume } from "@lit/context";
 import type { HassEntities, HassEntity } from "home-assistant-js-websocket";
 import type { CSSResultGroup, TemplateResult } from "lit";
 import { css, html, LitElement } from "lit";
 import { customElement, state, property } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import { preserveUnchangedEntityStatesRecord } from "../../../common/decorators/consume-context-entry";
 import { transform } from "../../../common/decorators/transform";
 import { computeStateName } from "../../../common/entity/compute_state_name";
@@ -68,18 +68,20 @@ export class HuiButtonsBase extends LitElement {
               tabindex="0"
               .label=${name}
             >
-              ${entityConf.show_icon !== false
-                ? html`
-                    <state-badge
-                      title=${computeTooltip(this.hass, entityConf)}
-                      .stateObj=${stateObj}
-                      .overrideIcon=${entityConf.icon}
-                      .overrideImage=${entityConf.image}
-                      .stateColor=${true}
-                      slot="icon"
-                    ></state-badge>
-                  `
-                : ""}
+              ${
+                entityConf.show_icon !== false
+                  ? html`
+                      <state-badge
+                        title=${computeTooltip(this.hass, entityConf)}
+                        .stateObj=${stateObj}
+                        .overrideIcon=${entityConf.icon}
+                        .overrideImage=${entityConf.image}
+                        .stateColor=${true}
+                        slot="icon"
+                      ></state-badge>
+                    `
+                  : ""
+              }
             </ha-assist-chip>
           `;
         })}

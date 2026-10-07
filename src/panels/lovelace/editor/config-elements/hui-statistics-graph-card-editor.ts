@@ -135,7 +135,7 @@ export class HuiStatisticsGraphCardEditor
 
   private _getStatisticsMetaData = async (statisticIds?: string[]) => {
     this._metaDatas = await getStatisticMetadata(
-      this.hass!,
+      this.hass!.callWS,
       statisticIds || []
     );
   };
@@ -157,14 +157,12 @@ export class HuiStatisticsGraphCardEditor
       localize: LocalizeFunc,
       statisticIds: string[] | undefined,
       metaDatas: StatisticsMetaData[] | undefined,
-      showFitOption: boolean,
-      hiddenLegend: boolean,
       enableDateSelect: boolean
     ) => {
       const units = new Set<string>();
       metaDatas?.forEach((metaData) => {
         const unit = getDisplayUnit(
-          this.hass!,
+          this.hass!.states,
           metaData.statistic_id,
           metaData
         );
@@ -291,15 +289,18 @@ export class HuiStatisticsGraphCardEditor
                   required: false,
                   selector: { number: { mode: "box", step: "any" } },
                 },
-                ...(showFitOption
-                  ? [
-                      {
-                        name: "fit_y_data",
-                        required: false,
-                        selector: { boolean: {} },
-                      },
-                    ]
-                  : []),
+                {
+                  name: "fit_y_data",
+                  required: false,
+                  visible: {
+                    condition: "or",
+                    conditions: [
+                      { field: "min_y_axis", operator: "exists" },
+                      { field: "max_y_axis", operator: "exists" },
+                    ],
+                  },
+                  selector: { boolean: {} },
+                },
                 {
                   name: "logarithmic_scale",
                   required: false,
@@ -310,15 +311,16 @@ export class HuiStatisticsGraphCardEditor
                   required: false,
                   selector: { boolean: {} },
                 },
-                ...(!hiddenLegend
-                  ? [
-                      {
-                        name: "expand_legend",
-                        required: false,
-                        selector: { boolean: {} },
-                      },
-                    ]
-                  : []),
+                {
+                  name: "expand_legend",
+                  required: false,
+                  visible: {
+                    field: "hide_legend",
+                    operator: "not_eq",
+                    value: true,
+                  },
+                  selector: { boolean: {} },
+                },
               ],
             },
           ],
@@ -397,9 +399,6 @@ export class HuiStatisticsGraphCardEditor
       this.hass.localize,
       this._configEntities,
       this._metaDatas,
-      this._config!.min_y_axis !== undefined ||
-        this._config!.max_y_axis !== undefined,
-      !!this._config!.hide_legend,
       !!this._config!.energy_date_selection
     );
     const configured_stat_types = this._config!.stat_types
@@ -501,13 +500,20 @@ export class HuiStatisticsGraphCardEditor
 
     // update card config with updated entity config
     const index = this._subElementEditorConfig!.index!;
+    const oldEntityConfig = this._config!.entities[index];
+    const oldEntityId =
+      typeof oldEntityConfig === "string"
+        ? oldEntityConfig
+        : oldEntityConfig?.entity;
     const newEntities = [...this._config!.entities];
     newEntities[index] = newEntityConfig;
     let config = this._config!;
     config = { ...config, entities: newEntities };
 
-    // remove inappropriate stat options dependently on entities
-    config = await this._cleanConfig(config);
+    // only a different statistic can invalidate the stat options
+    if (newEntityConfig.entity !== oldEntityId) {
+      config = await this._cleanConfig(config);
+    }
     // normalize a generated yaml code
     config = this._orderProperties(config);
     this._config = config;
@@ -541,7 +547,7 @@ export class HuiStatisticsGraphCardEditor
     }
     const metadata =
       config.stat_types || config.unit
-        ? await getStatisticMetadata(this.hass!, entityIds)
+        ? await getStatisticMetadata(this.hass!.callWS, entityIds)
         : undefined;
     if (config.stat_types && config.entities.length) {
       config.stat_types = ensureArray(config.stat_types).filter((stat_type) =>
@@ -555,8 +561,11 @@ export class HuiStatisticsGraphCardEditor
       config.unit &&
       !metadata!.some(
         (metaData) =>
-          getDisplayUnit(this.hass!, metaData?.statistic_id, metaData) ===
-          config.unit
+          getDisplayUnit(
+            this.hass!.states,
+            metaData?.statistic_id,
+            metaData
+          ) === config.unit
       )
     ) {
       delete config.unit;

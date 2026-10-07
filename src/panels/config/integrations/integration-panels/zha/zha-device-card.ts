@@ -107,6 +107,7 @@ class ZHADeviceCard extends SubscribeMixin(LitElement) {
           ></ha-input>
           <ha-area-picker
             .device=${this.device.device_reg_id}
+            .value=${this.device.area_id ?? undefined}
             @value-changed=${this._areaPicked}
           ></ha-area-picker>
         </div>
@@ -148,8 +149,8 @@ class ZHADeviceCard extends SubscribeMixin(LitElement) {
         entity.has_entity_name &&
         (entity.name === oldDeviceName || entity.name === newDeviceName)
       ) {
-        // clear name if it matches the device name and it uses the device name (entity naming)
-        newName = null;
+        // Use the device name when the entity name matches it
+        newName = "";
       } else if (name && name.includes(oldDeviceName)) {
         newName = name.replace(oldDeviceName, newDeviceName);
       }

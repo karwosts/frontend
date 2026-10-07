@@ -11,15 +11,16 @@ import { customElement, property, query } from "lit/decorators";
 import memoizeOne from "memoize-one";
 import { ensureArray } from "../../common/array/ensure-array";
 import { type HASSDomEvent, fireEvent } from "../../common/dom/fire_event";
-import { computeEntityNameList } from "../../common/entity/compute_entity_name_display";
-import { computeStateName } from "../../common/entity/compute_state_name";
-import { computeRTL } from "../../common/util/compute_rtl";
+import {
+  computeEntityPickerDisplay,
+  computeEntitySearchLabels,
+} from "../../common/entity/compute_entity_name_display";
 import { domainToName } from "../../data/integration";
 import {
-  getStatisticIds,
   getStatisticLabel,
   type StatisticsMetaData,
 } from "../../data/recorder";
+import { getStatisticIds } from "../../data/recorder_statistic_ids";
 import type { HomeAssistant, ValueChangedEvent } from "../../types";
 import { documentationUrl } from "../../util/documentation-url";
 import "../ha-combo-box-item";
@@ -52,6 +53,7 @@ const SEARCH_KEYS = [
   { name: "search_labels.entityName", weight: 10 },
   { name: "search_labels.friendlyName", weight: 9 },
   { name: "search_labels.deviceName", weight: 8 },
+  { name: "search_labels.parentDeviceName", weight: 6 },
   { name: "search_labels.areaName", weight: 6 },
   { name: "search_labels.domainName", weight: 4 },
   { name: "statisticId", weight: 3 },
@@ -84,6 +86,10 @@ export class HaStatisticPicker extends LitElement {
   @property() public value?: string;
 
   @property() public helper?: string;
+
+  @property({ attribute: "error-message" }) public errorMessage?: string;
+
+  @property({ type: Boolean }) public invalid = false;
 
   @property() public placeholder?: string;
 
@@ -228,11 +234,6 @@ export class HaStatisticPicker extends LitElement {
         });
       }
 
-      const isRTL = computeRTL(
-        hass.language,
-        hass.translationMetadata.translations
-      );
-
       const output: StatisticComboBoxItem[] = [];
 
       statisticIds.forEach((meta) => {
@@ -248,7 +249,12 @@ export class HaStatisticPicker extends LitElement {
         if (!stateObj) {
           if (!entitiesOnly) {
             const id = meta.statistic_id;
-            const label = getStatisticLabel(this.hass, meta.statistic_id, meta);
+            const label = getStatisticLabel(
+              this.hass.states,
+              this.hass.formatEntityName,
+              meta.statistic_id,
+              meta
+            );
             const type =
               meta.statistic_id.includes(":") &&
               !meta.statistic_id.includes(".")
@@ -286,21 +292,17 @@ export class HaStatisticPicker extends LitElement {
         }
         const id = meta.statistic_id;
 
-        const friendlyName = computeStateName(stateObj); // Keep this for search
-
-        const [entityName, deviceName, areaName] = computeEntityNameList(
+        const { primary, secondary } = computeEntityPickerDisplay(
+          hass,
+          stateObj
+        );
+        const searchLabels = computeEntitySearchLabels(
           stateObj,
-          [{ type: "entity" }, { type: "device" }, { type: "area" }],
           hass.entities,
           hass.devices,
           hass.areas,
           hass.floors
         );
-
-        const primary = entityName || deviceName || id;
-        const secondary = [areaName, entityName ? deviceName : undefined]
-          .filter(Boolean)
-          .join(isRTL ? " ◂ " : " ▸ ");
 
         const sortingPrefix = `${TYPE_ORDER.indexOf("entity")}`;
         output.push({
@@ -310,13 +312,12 @@ export class HaStatisticPicker extends LitElement {
           secondary,
           stateObj: stateObj,
           type: "entity",
-          sorting_label: [sortingPrefix, deviceName, entityName].join("_"),
-          search_labels: {
-            entityName: entityName || null,
-            deviceName: deviceName || null,
-            areaName: areaName || null,
-            friendlyName,
-          },
+          sorting_label: [
+            sortingPrefix,
+            searchLabels.deviceName,
+            searchLabels.entityName,
+          ].join("_"),
+          search_labels: searchLabels,
         });
       });
 
@@ -341,28 +342,37 @@ export class HaStatisticPicker extends LitElement {
     const item = this._computeItem(statisticId);
 
     return html`
-      ${item.stateObj
-        ? html`
-            <state-badge .stateObj=${item.stateObj} slot="start"></state-badge>
-          `
-        : item.icon_path
+      ${
+        item.stateObj
           ? html`
-              <ha-svg-icon slot="start" .path=${item.icon_path}></ha-svg-icon>
+              <state-badge
+                .stateObj=${item.stateObj}
+                slot="start"
+              ></state-badge>
             `
-          : nothing}
+          : item.icon_path
+            ? html`
+                <ha-svg-icon slot="start" .path=${item.icon_path}></ha-svg-icon>
+              `
+            : nothing
+      }
       <span slot="headline">${item.primary}</span>
-      ${item.secondary
-        ? html`<span slot="supporting-text">${item.secondary}</span>`
-        : nothing}
-      ${this.canEdit
-        ? html`<ha-icon-button
-            slot="end"
-            .value=${statisticId}
-            .label=${this.hass.localize("ui.common.edit")}
-            .path=${mdiPencil}
-            @click=${this._editItem}
-          ></ha-icon-button>`
-        : nothing}
+      ${
+        item.secondary
+          ? html`<span slot="supporting-text">${item.secondary}</span>`
+          : nothing
+      }
+      ${
+        this.canEdit
+          ? html`<ha-icon-button
+              slot="end"
+              .value=${statisticId}
+              .label=${this.hass.localize("ui.common.edit")}
+              .path=${mdiPencil}
+              @click=${this._editItem}
+            ></ha-icon-button>`
+          : nothing
+      }
     `;
   }
 
@@ -382,25 +392,17 @@ export class HaStatisticPicker extends LitElement {
     const stateObj = this.hass.states[statisticId];
 
     if (stateObj) {
-      const [entityName, deviceName, areaName] = computeEntityNameList(
+      const { primary, secondary } = computeEntityPickerDisplay(
+        this.hass,
+        stateObj
+      );
+      const searchLabels = computeEntitySearchLabels(
         stateObj,
-        [{ type: "entity" }, { type: "device" }, { type: "area" }],
         this.hass.entities,
         this.hass.devices,
         this.hass.areas,
         this.hass.floors
       );
-
-      const isRTL = computeRTL(
-        this.hass.language,
-        this.hass.translationMetadata.translations
-      );
-
-      const primary = entityName || deviceName || statisticId;
-      const secondary = [areaName, entityName ? deviceName : undefined]
-        .filter(Boolean)
-        .join(isRTL ? " ◂ " : " ▸ ");
-      const friendlyName = computeStateName(stateObj); // Keep this for search
 
       const sortingPrefix = `${TYPE_ORDER.indexOf("entity")}`;
       return {
@@ -410,14 +412,12 @@ export class HaStatisticPicker extends LitElement {
         secondary,
         stateObj: stateObj,
         type: "entity",
-        sorting_label: [sortingPrefix, deviceName, entityName].join("_"),
-        search_labels: {
-          entityName: entityName || null,
-          deviceName: deviceName || null,
-          areaName: areaName || null,
-          friendlyName,
-          statisticId,
-        },
+        sorting_label: [
+          sortingPrefix,
+          searchLabels.deviceName,
+          searchLabels.entityName,
+        ].join("_"),
+        search_labels: { ...searchLabels, statisticId },
       };
     }
 
@@ -433,7 +433,12 @@ export class HaStatisticPicker extends LitElement {
 
       if (type === "external") {
         const sortingPrefix = `${TYPE_ORDER.indexOf("external")}`;
-        const label = getStatisticLabel(this.hass, statisticId, statistic);
+        const label = getStatisticLabel(
+          this.hass.states,
+          this.hass.formatEntityName,
+          statisticId,
+          statistic
+        );
         const domain = statisticId.split(":")[0];
         const domainName = domainToName(this.hass.localize, domain);
 
@@ -451,7 +456,12 @@ export class HaStatisticPicker extends LitElement {
     }
 
     const sortingPrefix = `${TYPE_ORDER.indexOf("external")}`;
-    const label = getStatisticLabel(this.hass, statisticId, statistic);
+    const label = getStatisticLabel(
+      this.hass.states,
+      this.hass.formatEntityName,
+      statisticId,
+      statistic
+    );
 
     return {
       id: statisticId,
@@ -470,32 +480,38 @@ export class HaStatisticPicker extends LitElement {
   ) => {
     const showEntityId = this.hass.userData?.showEntityIdPicker;
     return html`
-      <ha-combo-box-item type="button" compact .borderTop=${index !== 0}>
-        ${item.icon_path
-          ? html`
-              <ha-svg-icon
-                style="margin: 0 4px"
-                slot="start"
-                .path=${item.icon_path}
-              ></ha-svg-icon>
-            `
-          : item.stateObj
+      <ha-combo-box-item .borderTop=${index !== 0}>
+        ${
+          item.icon_path
             ? html`
-                <state-badge
+                <ha-svg-icon
+                  style="margin: 0 4px"
                   slot="start"
-                  .stateObj=${item.stateObj}
-                ></state-badge>
+                  .path=${item.icon_path}
+                ></ha-svg-icon>
               `
-            : nothing}
+            : item.stateObj
+              ? html`
+                  <state-badge
+                    slot="start"
+                    .stateObj=${item.stateObj}
+                  ></state-badge>
+                `
+              : nothing
+        }
         <span slot="headline">${item.primary} </span>
-        ${item.secondary
-          ? html`<span slot="supporting-text">${item.secondary}</span>`
-          : nothing}
-        ${item.statistic_id && showEntityId
-          ? html`<span slot="supporting-text" class="code">
-              ${item.statistic_id}
-            </span>`
-          : nothing}
+        ${
+          item.secondary
+            ? html`<span slot="supporting-text">${item.secondary}</span>`
+            : nothing
+        }
+        ${
+          item.statistic_id && showEntityId
+            ? html`<span slot="supporting-text" class="code">
+                ${item.statistic_id}
+              </span>`
+            : nothing
+        }
       </ha-combo-box-item>
     `;
   };
@@ -511,6 +527,9 @@ export class HaStatisticPicker extends LitElement {
         .autofocus=${this.autofocus}
         .allowCustomValue=${this.allowCustomEntity}
         .disabled=${this.disabled}
+        .required=${this.required}
+        .invalid=${this.invalid}
+        .errorMessage=${this.errorMessage}
         .label=${this.label}
         use-top-label
         .placeholder=${placeholder}

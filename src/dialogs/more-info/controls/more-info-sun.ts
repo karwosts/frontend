@@ -1,7 +1,7 @@
-import { consume } from "@lit/context";
 import type { HassConfig, HassEntity } from "home-assistant-js-websocket";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import { formatTime } from "../../../common/datetime/format_time";
 import { transform } from "../../../common/decorators/transform";
 import "../../../components/ha-relative-time";
@@ -51,13 +51,15 @@ class MoreInfoSun extends LitElement {
           <div class="row">
             <div class="key">
               <span
-                >${item === "ris"
-                  ? this._i18n.localize(
-                      "ui.dialogs.more_info_control.sun.rising"
-                    )
-                  : this._i18n.localize(
-                      "ui.dialogs.more_info_control.sun.setting"
-                    )}</span
+                >${
+                  item === "ris"
+                    ? this._i18n.localize(
+                        "ui.dialogs.more_info_control.sun.rising"
+                      )
+                    : this._i18n.localize(
+                        "ui.dialogs.more_info_control.sun.setting"
+                      )
+                }</span
               >
               <ha-relative-time
                 .datetime=${item === "ris" ? risingDate : settingDate}

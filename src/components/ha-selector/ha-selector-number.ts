@@ -3,6 +3,7 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, query } from "lit/decorators";
 import { fireEvent } from "../../common/dom/fire_event";
 import type { NumberSelector } from "../../data/selector";
+import { isSafari } from "../../util/is_safari";
 import "../ha-input-helper-text";
 import "../ha-slider";
 import "../input/ha-input";
@@ -66,6 +67,17 @@ export class HaNumberSelector extends LitElement {
       }
     }
 
+    // On iOS/iPadOS the numeric and decimal on-screen keypads have no minus key.
+    // Leaving inputmode unset on a number input gives the "Numbers and
+    // Punctuation" keyboard there, which does include a minus. Other platforms
+    // include a minus on their number keypads, so restrict this workaround to
+    // Safari/WebKit and only when the selector allows negatives: either an
+    // explicit negative min, or no min at all (e.g. the numeric threshold
+    // selector used by the power triggers).
+    const useSafariNegativeKeyboard =
+      isSafari &&
+      (this.selector.number?.min === undefined || this.selector.number.min < 0);
+
     const translationKey = this.selector.number?.translation_key;
     let unit = this.selector.number?.unit_of_measurement;
     if (isBox && unit && this.localizeValue && translationKey) {
@@ -75,35 +87,43 @@ export class HaNumberSelector extends LitElement {
     }
 
     return html`
-      ${this.label && !isBox
-        ? html`${this.label}${this.required ? "*" : ""}`
-        : nothing}
+      ${
+        this.label && !isBox
+          ? html`${this.label}${this.required ? "*" : ""}`
+          : nothing
+      }
       <div class="input">
-        ${!isBox
-          ? html`
-              <ha-slider
-                labeled
-                .min=${this.selector.number!.min}
-                .max=${this.selector.number!.max}
-                .value=${this.value}
-                .step=${sliderStep}
-                .disabled=${this.disabled}
-                .required=${this.required}
-                @change=${this._handleSliderChange}
-                .withMarkers=${this.selector.number?.slider_ticks || false}
-              >
-              </ha-slider>
-            `
-          : nothing}
+        ${
+          !isBox
+            ? html`
+                <ha-slider
+                  labeled
+                  .min=${this.selector.number!.min}
+                  .max=${this.selector.number!.max}
+                  .value=${this.value ?? this.placeholder}
+                  .step=${sliderStep}
+                  .disabled=${this.disabled}
+                  .required=${this.required}
+                  @change=${this._handleSliderChange}
+                  .withMarkers=${this.selector.number?.slider_ticks || false}
+                >
+                </ha-slider>
+              `
+            : nothing
+        }
         <ha-input
-          .inputMode=${this.selector.number?.step === "any" ||
-          (this.selector.number?.step ?? 1) % 1 !== 0
-            ? "decimal"
-            : "numeric"}
+          .inputmode=${
+            useSafariNegativeKeyboard
+              ? undefined
+              : this.selector.number?.step === "any" ||
+                  (this.selector.number?.step ?? 1) % 1 !== 0
+                ? "decimal"
+                : "numeric"
+          }
           .label=${!isBox ? undefined : this.label}
-          .placeholder=${this.placeholder !== undefined
-            ? this.placeholder.toString()
-            : ""}
+          .placeholder=${
+            this.placeholder !== undefined ? this.placeholder.toString() : ""
+          }
           class=${isBox ? "single" : ""}
           .min=${this.selector.number?.min}
           .max=${this.selector.number?.max}
@@ -112,6 +132,7 @@ export class HaNumberSelector extends LitElement {
           .hint=${isBox ? this.helper : undefined}
           .disabled=${this.disabled}
           .required=${this.required}
+          .validationMessage=${this.selector.number?.validation_message}
           type="number"
           autoValidate
           .withoutSpinButtons=${!isBox}
@@ -120,11 +141,11 @@ export class HaNumberSelector extends LitElement {
           ${unit ? html`<span slot="end">${unit}</span>` : nothing}
         </ha-input>
       </div>
-      ${!isBox && this.helper
-        ? html`<ha-input-helper-text .disabled=${this.disabled}
-            >${this.helper}</ha-input-helper-text
-          >`
-        : nothing}
+      ${
+        !isBox && this.helper
+          ? html`<ha-input-helper-text>${this.helper}</ha-input-helper-text>`
+          : nothing
+      }
     `;
   }
 
@@ -155,7 +176,7 @@ export class HaNumberSelector extends LitElement {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      direction: ltr;
+      direction: var(--direction);
     }
     ha-slider {
       flex: 1;

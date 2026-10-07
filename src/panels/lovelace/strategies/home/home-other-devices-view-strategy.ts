@@ -39,7 +39,14 @@ export class HomeOtherDevicesViewStrategy extends ReactiveElement {
     const allEntities = Object.keys(hass.states);
 
     const otherDevicesFilters = OTHER_DEVICES_FILTERS.map((filter) =>
-      generateEntityFilter(hass, filter)
+      generateEntityFilter(
+        hass.states,
+        hass.entities,
+        hass.devices,
+        hass.areas,
+        hass.floors,
+        filter
+      )
     );
 
     const otherDevicesEntities = findEntities(allEntities, otherDevicesFilters);
@@ -73,9 +80,16 @@ export class HomeOtherDevicesViewStrategy extends ReactiveElement {
       })
     );
 
-    const primaryFilter = generateEntityFilter(hass, {
-      entity_category: "none",
-    });
+    const primaryFilter = generateEntityFilter(
+      hass.states,
+      hass.entities,
+      hass.devices,
+      hass.areas,
+      hass.floors,
+      {
+        entity_category: "none",
+      }
+    );
 
     for (const deviceEntities of devicesEntities) {
       if (deviceEntities.entities.length === 0) continue;
@@ -151,7 +165,6 @@ export class HomeOtherDevicesViewStrategy extends ReactiveElement {
           {
             type: "empty-state",
             icon: "mdi:check-all",
-            icon_color: "primary",
             content_only: true,
             title: hass.localize(
               "ui.panel.lovelace.strategy.home-other-devices.all_organized_title"

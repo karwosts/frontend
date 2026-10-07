@@ -57,7 +57,7 @@ import {
   getCreatedAtTableColumn,
   getModifiedAtTableColumn,
 } from "../common/data-table-columns";
-import { configSections } from "../ha-panel-config";
+import { configSections } from "../config-sections";
 import { showLabelDetailDialog } from "./show-dialog-label-detail";
 
 type ConfigTranslationKey = FlattenObjectKeys<
@@ -107,6 +107,8 @@ export class HaConfigLabels extends LitElement {
   @property({ attribute: false }) public route!: Route;
 
   @state() private _labels: LabelRegistryEntry[] = [];
+
+  @state() private _loading = true;
 
   @state()
   @storage({
@@ -174,9 +176,11 @@ export class HaConfigLabels extends LitElement {
           ? undefined
           : (label) => html`
               <div>${label.name}</div>
-              ${label.description
-                ? html`<div class="secondary">${label.description}</div>`
-                : nothing}
+              ${
+                label.description
+                  ? html`<div class="secondary">${label.description}</div>`
+                  : nothing
+              }
             `,
       },
       description: {
@@ -256,6 +260,7 @@ export class HaConfigLabels extends LitElement {
         .tabs=${configSections.areas}
         .columns=${this._columns(this.hass.localize, this.narrow)}
         .data=${this._data(this._labels)}
+        .loading=${this._loading}
         .noDataText=${this.hass.localize("ui.panel.config.labels.no_labels")}
         has-fab
         .initialSorting=${this._activeSorting}
@@ -319,7 +324,11 @@ export class HaConfigLabels extends LitElement {
   }
 
   private async _fetchLabels() {
-    this._labels = await fetchLabelRegistry(this.hass.connection);
+    try {
+      this._labels = await fetchLabelRegistry(this.hass.connection);
+    } finally {
+      this._loading = false;
+    }
   }
 
   private _addLabel() {

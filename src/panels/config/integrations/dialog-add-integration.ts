@@ -7,6 +7,10 @@ import { customElement, query, state } from "lit/decorators";
 import { styleMap } from "lit/directives/style-map";
 import memoizeOne from "memoize-one";
 import { isComponentLoaded } from "../../../common/config/is_component_loaded";
+import type {
+  HASSDomCurrentTargetEvent,
+  HASSDomTargetEvent,
+} from "../../../common/dom/fire_event";
 import { fireEvent } from "../../../common/dom/fire_event";
 import {
   PROTOCOL_INTEGRATIONS,
@@ -16,7 +20,6 @@ import { navigate } from "../../../common/navigate";
 import { caseInsensitiveStringCompare } from "../../../common/string/compare";
 import type { LocalizeFunc } from "../../../common/translations/localize";
 import "../../../components/ha-dialog";
-import "../../../components/ha-domain-icon";
 import "../../../components/ha-icon-button-prev";
 import "../../../components/ha-icon-next";
 import "../../../components/ha-svg-icon";
@@ -417,19 +420,23 @@ class AddIntegrationDialog extends LitElement {
       header-title=${headerTitle}
       @closed=${this._dialogClosed}
     >
-      ${showingBrandView
-        ? html`
-            ${!this._openedDirectly
-              ? html`
-                  <ha-icon-button-prev
-                    slot="headerNavigationIcon"
-                    @click=${this._prevClicked}
-                  ></ha-icon-button-prev>
-                `
-              : nothing}
-            ${this._renderBrandView(pickedIntegration, flowsInProgress)}
-          `
-        : this._renderAll(integrations)}
+      ${
+        showingBrandView
+          ? html`
+              ${
+                !this._openedDirectly
+                  ? html`
+                      <ha-icon-button-prev
+                        slot="headerNavigationIcon"
+                        @click=${this._prevClicked}
+                      ></ha-icon-button-prev>
+                    `
+                  : nothing
+              }
+              ${this._renderBrandView(pickedIntegration, flowsInProgress)}
+            `
+          : this._renderAll(integrations)
+      }
     </ha-dialog>`;
   }
 
@@ -569,21 +576,23 @@ class AddIntegrationDialog extends LitElement {
         )}
         @keydown=${this._maybeSubmit}
       ></ha-input-search>
-      ${integrations
-        ? html`<ha-list-virtualized
-            .rows=${integrations}
-            .rowRenderer=${this._renderRow}
-            style=${styleMap({
-              width: `${this._width}px`,
-              height: this._narrow
-                ? "calc(100vh - 184px - var(--safe-area-inset-top, 0px) - var(--safe-area-inset-bottom, 0px))"
-                : "500px",
-            })}
-          >
-          </ha-list-virtualized>`
-        : html`<div class="flex center">
-            <ha-spinner></ha-spinner>
-          </div>`}`;
+      ${
+        integrations
+          ? html`<ha-list-virtualized
+              .rows=${integrations}
+              .rowRenderer=${this._renderRow}
+              style=${styleMap({
+                width: `${this._width}px`,
+                height: this._narrow
+                  ? "calc(100vh - 184px - var(--safe-area-inset-top, 0px) - var(--safe-area-inset-bottom, 0px))"
+                  : "500px",
+              })}
+            >
+            </ha-list-virtualized>`
+          : html`<div class="flex center">
+              <ha-spinner></ha-spinner>
+            </div>`
+      }`;
   }
 
   private _renderRow = (integration: IntegrationListItem) => {
@@ -655,16 +664,17 @@ class AddIntegrationDialog extends LitElement {
     );
   }
 
-  private async _filterChanged(ev: InputEvent) {
-    this._filter = (ev.target as HaInputSearch).value ?? "";
+  private async _filterChanged(ev: HASSDomTargetEvent<HaInputSearch>) {
+    this._filter = ev.target.value ?? "";
   }
 
-  private _integrationPicked = (ev: Event) => {
-    const listItem = ev.currentTarget as HaIntegrationListItem;
-    if (!listItem?.integration) {
+  private _integrationPicked = (
+    ev: HASSDomCurrentTargetEvent<HaIntegrationListItem>
+  ) => {
+    if (!ev.currentTarget.integration) {
       return;
     }
-    this._handleIntegrationPicked(listItem.integration);
+    this._handleIntegrationPicked(ev.currentTarget.integration);
   };
 
   private async _handleIntegrationPicked(integration: IntegrationListItem) {

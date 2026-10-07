@@ -15,18 +15,32 @@ class SupervisorFormfieldLabel extends LitElement {
 
   protected render(): TemplateResult {
     return html`
-      ${this.imageUrl
-        ? html`<img loading="lazy" alt="" src=${this.imageUrl} class="icon" />`
-        : this.iconPath
-          ? html`
-              <ha-svg-icon .path=${this.iconPath} class="icon"></ha-svg-icon>
-            `
-          : nothing}
+      <slot name="icon">
+        ${
+          this.imageUrl
+            ? html`<img
+                loading="lazy"
+                alt=""
+                src=${this.imageUrl}
+                class="icon"
+              />`
+            : this.iconPath
+              ? html`
+                  <ha-svg-icon
+                    .path=${this.iconPath}
+                    class="icon"
+                  ></ha-svg-icon>
+                `
+              : nothing
+        }
+      </slot>
       <span class="label">
         ${this.label}
-        ${this.version
-          ? html`<span class="version">(${this.version})</span>`
-          : nothing}
+        ${
+          this.version
+            ? html`<span class="version">(${this.version})</span>`
+            : nothing
+        }
       </span>
     `;
   }

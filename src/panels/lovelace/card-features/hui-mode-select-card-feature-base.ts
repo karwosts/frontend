@@ -3,12 +3,19 @@ import type { PropertyValues, TemplateResult } from "lit";
 import { html, LitElement, nothing } from "lit";
 import { property, state } from "lit/decorators";
 import { styleMap } from "lit/directives/style-map";
+import { consume } from "../../../common/decorators/consume";
+import {
+  consumeEntityState,
+  consumeLocalize,
+} from "../../../common/decorators/consume-context-entry";
+import type { LocalizeFunc } from "../../../common/translations/localize";
 import "../../../components/ha-attribute-icon";
 import "../../../components/ha-control-select";
 import "../../../components/ha-control-select-menu";
 import "../../../components/ha-svg-icon";
+import { apiContext, formattersContext } from "../../../data/context";
 import { UNAVAILABLE } from "../../../data/entity/entity";
-import type { HomeAssistant } from "../../../types";
+import type { HomeAssistantApi, HomeAssistantFormatters } from "../../../types";
 import type { LovelaceCardFeature } from "../types";
 import { cardFeatureStyles } from "./common/card-feature-styles";
 import { filterModes } from "./common/filter-modes";
@@ -23,7 +30,7 @@ type AttributeModeChangeEvent = CustomEvent<{
 }>;
 
 type AttributeModeCardFeatureConfig = LovelaceCardFeatureConfig & {
-  style?: "dropdown" | "icons";
+  style?: "dropdown" | "icons" | "buttons";
 };
 
 export interface HuiModeSelectOption {
@@ -38,9 +45,23 @@ export abstract class HuiModeSelectCardFeatureBase<
   extends LitElement
   implements LovelaceCardFeature
 {
-  @property({ attribute: false }) public hass?: HomeAssistant;
-
   @property({ attribute: false }) public context?: LovelaceCardFeatureContext;
+
+  @state()
+  @consumeEntityState({ entityIdPath: ["context", "entity_id"] })
+  protected _stateObj?: TEntity;
+
+  @state()
+  @consumeLocalize()
+  protected _localize!: LocalizeFunc;
+
+  @state()
+  @consume({ context: apiContext, subscribe: true })
+  protected _api!: HomeAssistantApi;
+
+  @state()
+  @consume({ context: formattersContext, subscribe: true })
+  protected _formatters!: HomeAssistantFormatters;
 
   @state() protected _config?: TConfig;
 
@@ -63,7 +84,7 @@ export abstract class HuiModeSelectCardFeatureBase<
   protected abstract _isSupported(): boolean;
 
   protected get _label(): string {
-    return this.hass!.formatEntityAttributeName(
+    return this._formatters.formatEntityAttributeName(
       this._stateObj!,
       this._attribute
     );
@@ -75,11 +96,13 @@ export abstract class HuiModeSelectCardFeatureBase<
 
   protected readonly _allowIconsStyle: boolean = true;
 
-  protected readonly _defaultStyle: "dropdown" | "icons" = "dropdown";
+  protected readonly _allowButtonsStyle: boolean = false;
+
+  protected readonly _defaultStyle: "dropdown" | "icons" | "buttons" =
+    "dropdown";
 
   protected get _controlSelectStyle():
-    | Record<string, string | undefined>
-    | undefined {
+    Record<string, string | undefined> | undefined {
     return undefined;
   }
 
@@ -91,14 +114,6 @@ export abstract class HuiModeSelectCardFeatureBase<
     return true;
   }
 
-  protected get _stateObj(): TEntity | undefined {
-    if (!this.hass || !this.context?.entity_id) {
-      return undefined;
-    }
-
-    return this.hass.states[this.context.entity_id] as TEntity | undefined;
-  }
-
   public setConfig(config: TConfig): void {
     if (!config) {
       throw new Error("Invalid configuration");
@@ -107,28 +122,17 @@ export abstract class HuiModeSelectCardFeatureBase<
     this._config = config;
   }
 
-  protected willUpdate(changedProps: PropertyValues<this>): void {
+  protected willUpdate(changedProps: PropertyValues): void {
     super.willUpdate(changedProps);
 
-    if (
-      (changedProps.has("hass") || changedProps.has("context")) &&
-      this._stateObj
-    ) {
-      const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
-      const oldStateObj = this.context?.entity_id
-        ? (oldHass?.states[this.context.entity_id] as TEntity | undefined)
-        : undefined;
-
-      if (oldStateObj !== this._stateObj) {
-        this._currentValue = this._getValue(this._stateObj);
-      }
+    if (changedProps.has("_stateObj") && this._stateObj) {
+      this._currentValue = this._getValue(this._stateObj);
     }
   }
 
   protected render(): TemplateResult | null {
     if (
       !this._config ||
-      !this.hass ||
       !this.context ||
       !this._stateObj ||
       !this._isSupported()
@@ -139,21 +143,21 @@ export abstract class HuiModeSelectCardFeatureBase<
     const stateObj = this._stateObj;
     const options = this._getOptions();
     const label = this._label;
-    const renderIcons =
-      this._allowIconsStyle &&
-      (this._config.style === "icons" ||
-        (this._config.style === undefined && this._defaultStyle === "icons"));
+    const style = this._config.style ?? this._defaultStyle;
+    const renderIcons = this._allowIconsStyle && style === "icons";
+    const renderButtons = this._allowButtonsStyle && style === "buttons";
 
-    if (renderIcons) {
+    if (renderIcons || renderButtons) {
       return html`
         <ha-control-select
-          .options=${options.map((option) => ({
-            ...option,
-            icon: this._renderOptionIcon(option),
-          }))}
+          .options=${options.map((option) =>
+            renderIcons
+              ? { ...option, icon: this._renderOptionIcon(option) }
+              : option
+          )}
           .value=${this._currentValue}
           @value-changed=${this._valueChanged}
-          hide-option-label
+          ?hide-option-label=${renderIcons}
           .label=${label}
           style=${styleMap(this._controlSelectStyle ?? {})}
           .disabled=${stateObj.state === UNAVAILABLE}
@@ -171,16 +175,18 @@ export abstract class HuiModeSelectCardFeatureBase<
         .disabled=${stateObj.state === UNAVAILABLE}
         @wa-select=${this._valueChanged}
         .options=${options}
-        .renderIcon=${this._showDropdownOptionIcons
-          ? this._renderMenuIcon
-          : undefined}
+        .renderIcon=${
+          this._showDropdownOptionIcons ? this._renderMenuIcon : undefined
+        }
       >
-        ${this._dropdownIconPath
-          ? html`<ha-svg-icon
-              slot="icon"
-              .path=${this._dropdownIconPath}
-            ></ha-svg-icon>`
-          : nothing}
+        ${
+          this._dropdownIconPath
+            ? html`<ha-svg-icon
+                slot="icon"
+                .path=${this._dropdownIconPath}
+              ></ha-svg-icon>`
+            : nothing
+        }
       </ha-control-select-menu>
     `;
   }
@@ -190,7 +196,7 @@ export abstract class HuiModeSelectCardFeatureBase<
   }
 
   protected _getOptions(): HuiModeSelectOption[] {
-    if (!this._stateObj || !this.hass) {
+    if (!this._stateObj) {
       return [];
     }
 
@@ -199,7 +205,7 @@ export abstract class HuiModeSelectCardFeatureBase<
       this._configuredModes
     ).map((mode) => ({
       value: mode,
-      label: this.hass!.formatEntityAttributeValue(
+      label: this._formatters.formatEntityAttributeValue(
         this._stateObj!,
         this._attribute,
         mode
@@ -224,7 +230,7 @@ export abstract class HuiModeSelectCardFeatureBase<
     ></ha-attribute-icon>`;
 
   private async _valueChanged(ev: AttributeModeChangeEvent) {
-    if (!this.hass || !this._stateObj) {
+    if (!this._stateObj) {
       return;
     }
 
@@ -242,7 +248,7 @@ export abstract class HuiModeSelectCardFeatureBase<
     this._currentValue = value;
 
     try {
-      await this.hass.callService(
+      await this._api.callService(
         this._getServiceDomain(this._stateObj),
         this._serviceAction,
         {

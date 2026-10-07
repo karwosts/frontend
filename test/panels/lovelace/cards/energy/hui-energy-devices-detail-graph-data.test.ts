@@ -8,7 +8,6 @@ import type {
   DeviceConsumptionEnergyPreference,
   EnergyPreferences,
 } from "../../../../../src/data/energy";
-import type { HomeAssistant } from "../../../../../src/types";
 import type { EnergyDevicesDetailGraphCardConfig } from "../../../../../src/panels/lovelace/cards/types";
 import { generateEnergyDevicesDetailGraphData } from "../../../../../src/panels/lovelace/cards/energy/energy-devices-detail-graph-data";
 import { createMockComputedStyle } from "../../../../fixtures/computed-style";
@@ -23,11 +22,7 @@ const computedStyles = createMockComputedStyle({
   "--history-unknown-color": "#888888",
 });
 
-// createMockHass omits `themes`; getEnergyColor reads hass.themes.darkMode.
-const hass = {
-  ...createMockHass(),
-  themes: { darkMode: false },
-} as unknown as HomeAssistant;
+const { localize, states, formatEntityName } = createMockHass();
 
 // Fixed `now` (end fallback) and `untrackedOrder` (untracked dataset id
 // suffix, `untracked-<order>`) for deterministic output. In the live card
@@ -58,7 +53,10 @@ const config: EnergyDevicesDetailGraphCardConfig = {
 };
 
 const baseParams = {
-  hass,
+  localize,
+  states,
+  formatEntityName,
+  darkMode: false,
   config,
   computedStyles,
   now,
@@ -162,6 +160,59 @@ describe("generateEnergyDevicesDetailGraphData", () => {
         generateEnergyDevicesDetailGraphData({ ...baseParams, energyData })
       )
     ).toMatchSnapshot();
+  });
+
+  // Regression test for #52937/#52938: at the start of the day only the first
+  // hour has data. The untracked bars must center on the same period midpoint
+  // as the device bars (one stack, not two), and the whole day must be
+  // zero-filled so ECharts keeps the configured axis range instead of
+  // expanding it around the lone bucket.
+  it("keeps a lone first-of-day bucket on the shared zero-filled grid", () => {
+    const HOUR = 60 * 60 * 1000;
+    const full = generateEnergyData(12, {
+      days: 1,
+      period: "hour",
+      prefs: buildPrefs(false),
+    });
+    const firstStart = full.start.getTime();
+    const energyData = {
+      ...full,
+      stats: Object.fromEntries(
+        Object.entries(full.stats).map(([id, rows]) => [
+          id,
+          rows.filter((row) => row.start === firstStart),
+        ])
+      ),
+    };
+
+    const result = generateEnergyDevicesDetailGraphData({
+      ...baseParams,
+      energyData,
+    });
+
+    const nonZeroXs = new Set<number>();
+    for (const series of result.chartData) {
+      if (!series.data?.length) {
+        continue;
+      }
+      // Every non-empty series covers the full day grid...
+      const xs = series.data.map((item: any) =>
+        Number(item?.value?.[0] ?? item?.[0])
+      );
+      assert.equal(xs.length, 24);
+      const sorted = [...xs].sort((a, b) => a - b);
+      for (let i = 1; i < sorted.length; i++) {
+        assert.equal(sorted[i] - sorted[i - 1], HOUR);
+      }
+      for (const [index, item] of (series.data as any[]).entries()) {
+        const y = Number(item?.value?.[1] ?? item?.[1]);
+        if (y !== 0) {
+          nonZeroXs.add(xs[index]);
+        }
+      }
+    }
+    // ...and all real values stack on the single bucket midpoint.
+    assert.deepEqual([...nonZeroXs], [firstStart + HOUR / 2]);
   });
 
   // The seeded fixtures above all happen to produce fully-negative untracked

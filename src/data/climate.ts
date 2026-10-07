@@ -39,13 +39,12 @@ export type HvacAction =
 
 export type ClimateEntity = HassEntityBase & {
   attributes: HassEntityAttributeBase & {
-    hvac_mode: HvacMode;
     hvac_modes: HvacMode[];
     hvac_action?: HvacAction;
-    current_temperature: number;
+    current_temperature?: number;
     min_temp: number;
     max_temp: number;
-    temperature: number;
+    temperature?: number;
     target_temp_step?: number;
     target_temp_high?: number;
     target_temp_low?: number;
@@ -68,18 +67,7 @@ export type ClimateEntity = HassEntityBase & {
   };
 };
 
-export enum ClimateEntityFeature {
-  TARGET_TEMPERATURE = 1,
-  TARGET_TEMPERATURE_RANGE = 2,
-  TARGET_HUMIDITY = 4,
-  FAN_MODE = 8,
-  PRESET_MODE = 16,
-  SWING_MODE = 32,
-  AUX_HEAT = 64,
-  TURN_OFF = 128,
-  TURN_ON = 256,
-  SWING_HORIZONTAL_MODE = 512,
-}
+export { ClimateEntityFeature } from "./feature/climate_entity_feature";
 
 const hvacModeOrdering = HVAC_MODES.reduce(
   (order, mode, index) => {

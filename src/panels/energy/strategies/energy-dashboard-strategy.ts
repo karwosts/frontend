@@ -1,6 +1,8 @@
 import { ReactiveElement } from "lit";
 import { customElement } from "lit/decorators";
 import {
+  DEFAULT_ENERGY_COLLECTION_KEY,
+  DEFAULT_POWER_COLLECTION_KEY,
   EMPTY_PREFERENCES,
   getEnergyDataCollection,
 } from "../../../data/energy";
@@ -11,16 +13,12 @@ import type { LovelaceStrategyViewConfig } from "../../../data/lovelace/config/v
 import type { LocalizeKeys } from "../../../common/translations/localize";
 import type { HomeAssistant } from "../../../types";
 import type { LovelaceStrategyDependency } from "../../lovelace/strategies/types";
-import {
-  DEFAULT_ENERGY_COLLECTION_KEY,
-  DEFAULT_POWER_COLLECTION_KEY,
-} from "../constants";
 import type { EnergyViewPath } from "./energy-cards";
 import {
   hasDeviceConsumption,
   hasEnergySource,
   hasGasSource,
-  hasPowerDevices,
+  hasNowViewContent,
   hasPowerSources,
   hasWaterDevices,
   hasWaterSource,
@@ -92,7 +90,8 @@ export class EnergyDashboardStrategy extends ReactiveElement {
     if (
       !prefs ||
       (prefs.device_consumption.length === 0 &&
-        prefs.energy_sources.length === 0)
+        prefs.energy_sources.length === 0 &&
+        !hasWaterDevices(prefs))
     ) {
       await import("../cards/energy-setup-wizard-card");
       return {
@@ -102,8 +101,6 @@ export class EnergyDashboardStrategy extends ReactiveElement {
 
     const hasEnergy = hasEnergySource(prefs);
     const hasPowerSource = hasPowerSources(prefs);
-    const hasDevicePower = hasPowerDevices(prefs);
-    const hasPower = hasPowerSource || hasDevicePower;
     const hasWater = hasWaterSource(prefs) || hasWaterDevices(prefs);
     const hasGas = hasGasSource(prefs);
     const hasDevices = hasDeviceConsumption(prefs);
@@ -120,7 +117,7 @@ export class EnergyDashboardStrategy extends ReactiveElement {
     if (hasWater) {
       candidateViews.push(WATER_VIEW);
     }
-    if (hasPower) {
+    if (hasNowViewContent(prefs)) {
       candidateViews.push(POWER_VIEW);
     }
     if (
@@ -158,8 +155,17 @@ async function fetchEnergyPrefs(
   hass: HomeAssistant,
   defaultCollection?: string
 ): Promise<EnergyPreferences> {
-  const collection = getEnergyDataCollection(hass, {
+  const collection = getEnergyDataCollection(hass.connection, {
+    callWS: hass.callWS,
+    entities: hass.entities,
+    states: hass.states,
+    locale: hass.locale,
+    config: hass.config,
+    panelUrl: hass.panelUrl,
     key: defaultCollection || DEFAULT_ENERGY_COLLECTION_KEY,
+    // When landing directly on the "Now" view this warms its real-time
+    // collection, so it must be created with midnight rollover too.
+    midnightRollover: defaultCollection === DEFAULT_POWER_COLLECTION_KEY,
   });
 
   return await new Promise<EnergyPreferences>((resolve) => {

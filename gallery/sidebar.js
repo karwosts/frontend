@@ -40,6 +40,7 @@ export default [
           "ha-select-box",
           "ha-input",
           "ha-textarea",
+          "ha-picker-combo-box",
         ],
       },
       {
@@ -52,6 +53,7 @@ export default [
           "ha-control-switch",
           "ha-slider",
           "ha-control-slider",
+          "ha-control-scrubber",
           "ha-control-circular-slider",
           "ha-control-number-buttons",
           "ha-control-select",
@@ -228,6 +230,7 @@ export default [
       "entity-state",
       "ha-markdown",
       "integration-card",
+      "cloud-account",
       "box-shadow",
       "util-long-press",
       "remove-delete-add-create",

@@ -4,10 +4,14 @@ import type { HassEntity } from "home-assistant-js-websocket";
 import type { CSSResultGroup, PropertyValues } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { live } from "lit/directives/live";
 import { until } from "lit/directives/until";
 import memoizeOne from "memoize-one";
-import { consume } from "@lit/context";
+import { consume } from "../../../common/decorators/consume";
 import { isComponentLoaded } from "../../../common/config/is_component_loaded";
+import type { HASSDomCurrentTargetEvent } from "../../../common/dom/fire_event";
+import { computeDeviceNameDisplay } from "../../../common/entity/compute_device_name";
+import { computeEntityEntryName } from "../../../common/entity/compute_entity_name";
 import { computeDomain } from "../../../common/entity/compute_domain";
 import { computeObjectId } from "../../../common/entity/compute_object_id";
 import { supportsFeature } from "../../../common/entity/supports-feature";
@@ -19,23 +23,24 @@ import type {
   LocalizeKeys,
 } from "../../../common/translations/localize";
 import { copyToClipboard } from "../../../common/util/copy-clipboard";
+import "../../../components/entity/ha-entity-picker";
 import "../../../components/ha-alert";
 import "../../../components/ha-area-picker";
 import "../../../components/ha-color-picker";
 import "../../../components/ha-dropdown-item";
-import "../../../components/entity/ha-entity-picker";
 import "../../../components/ha-icon";
-import "../../../components/ha-icon-button-next";
+import "../../../components/ha-icon-button";
 import "../../../components/ha-icon-picker";
 import "../../../components/ha-labels-picker";
-import "../../../components/ha-list-item";
-import "../../../components/ha-md-list-item";
 import "../../../components/ha-select";
 import type { HaSelectSelectEvent } from "../../../components/ha-select";
 import "../../../components/ha-state-icon";
 import "../../../components/ha-switch";
 import type { HaSwitch } from "../../../components/ha-switch";
 import "../../../components/input/ha-input";
+import "../../../components/item/ha-list-item-button";
+import "../../../components/item/ha-row-item";
+import "../../../components/list/ha-list-base";
 import {
   CAMERA_ORIENTATIONS,
   CameraEntityFeature,
@@ -45,16 +50,16 @@ import {
   STREAM_TYPE_HLS,
   updateCameraPrefs,
 } from "../../../data/camera";
-import {
-  dirtyStateContext,
-  type DirtyStateContext,
-} from "../../../data/context/dirty-state";
 import type { ConfigEntry } from "../../../data/config_entries";
 import { deleteConfigEntry } from "../../../data/config_entries";
 import {
   createConfigFlow,
   handleConfigFlowStep,
 } from "../../../data/config_flow";
+import {
+  dirtyStateContext,
+  type DirtyStateContext,
+} from "../../../data/context/dirty-state";
 import type { DataEntryFlowStepCreateEntry } from "../../../data/data_entry_flow";
 import type { DeviceRegistryEntry } from "../../../data/device/device_registry";
 import { updateDeviceRegistryEntry } from "../../../data/device/device_registry";
@@ -128,6 +133,7 @@ export const OVERRIDE_DEVICE_CLASSES = {
     [
       "smoke",
       "safety",
+      "glass_break",
       "sound",
       "problem",
       "tamper",
@@ -193,6 +199,8 @@ export class EntityRegistrySettingsEditor extends LitElement {
 
   @state() private _name!: string;
 
+  @state() private _useDeviceName = false;
+
   @state() private _icon!: string;
 
   @state() private _entityId!: EntitySettingsState["entityId"];
@@ -248,12 +256,17 @@ export class EntityRegistrySettingsEditor extends LitElement {
 
   @state() private _noDeviceArea?: boolean;
 
+  @state() private _ownAreaWithoutName = false;
+
   private _origEntityId!: string;
 
   private _deviceClassOptions?: string[][];
 
   protected willUpdate(changedProperties: PropertyValues<this>) {
     super.willUpdate(changedProperties);
+    this._device = this.entry.device_id
+      ? this.hass.devices[this.entry.device_id]
+      : undefined;
     if (
       !changedProperties.has("entry") ||
       changedProperties.get("entry")?.id === this.entry.id
@@ -261,19 +274,18 @@ export class EntityRegistrySettingsEditor extends LitElement {
       return;
     }
 
-    this._name = this.entry.name || "";
+    this._name = this.entry.name || this._originalName;
+    this._useDeviceName = !!this._device && !this._entryName;
     this._icon = this.entry.icon || "";
     this._deviceClass =
       this.entry.device_class || this.entry.original_device_class;
     this._origEntityId = this.entry.entity_id;
     this._areaId = this.entry.area_id;
+    this._ownAreaWithoutName = this._useDeviceName && !!this.entry.area_id;
     this._labels = this.entry.labels;
     this._entityId = this.entry.entity_id;
     this._disabledBy = this.entry.disabled_by;
     this._hiddenBy = this.entry.hidden_by;
-    this._device = this.entry.device_id
-      ? this.hass.devices[this.entry.device_id]
-      : undefined;
     this._switchAsInvert = this.entry.options?.switch_as_x?.invert === true;
 
     const domain = computeDomain(this.entry.entity_id);
@@ -386,10 +398,10 @@ export class EntityRegistrySettingsEditor extends LitElement {
 
     this._dirtyState?.setState(
       {
-        name: this._name.trim() || null,
-        icon: this._icon.trim() || null,
-        entityId: this._entityId.trim(),
-        areaId: this._areaId ?? null,
+        name: this._computeName(),
+        icon: this._icon || null,
+        entityId: this._entityId,
+        areaId: this._computeAreaId(),
         labels: this._labels ?? [],
         deviceClass: this._deviceClass,
         disabledBy: this._disabledBy,
@@ -464,405 +476,482 @@ export class EntityRegistrySettingsEditor extends LitElement {
 
     const defaultPrecision =
       this.entry.options?.sensor?.suggested_display_precision ?? undefined;
+    const defaultName = this._originalName;
 
     return html`
-      ${this.hideName
-        ? nothing
-        : html`<ha-input
-            inset-label
-            class="name"
-            .value=${this._name}
-            .label=${this.hass.localize(
-              "ui.dialogs.entity_registry.editor.name"
-            )}
-            .disabled=${this.disabled}
-            @input=${this._nameChanged}
-          >
-            ${this._device
-              ? html`<span slot="hint"
-                  >${this.hass.localize(
-                    "ui.dialogs.entity_registry.editor.device_name_tip",
-                    {
-                      link: html`<button
-                        class="link"
-                        @click=${this._resetNameAndOpenDeviceSettings}
-                      >
-                        ${this.hass.localize(
-                          "ui.dialogs.entity_registry.editor.open_device_settings"
-                        )}
-                      </button>`,
-                    }
-                  )}</span
-                >`
-              : nothing}
-          </ha-input>`}
-      ${this.hideIcon
-        ? nothing
-        : html`
-            <ha-icon-picker
-              .value=${this._icon}
-              @value-changed=${this._iconChanged}
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.icon"
-              )}
-              .placeholder=${this.entry.original_icon ||
-              stateObj?.attributes.icon ||
-              (stateObj &&
-                until(
-                  entityIcon(
-                    this.hass.entities,
-                    this.hass.config,
-                    this.hass.connection,
-                    stateObj
-                  )
-                )) ||
-              until(entryIcon(this.hass, this.entry))}
-              .disabled=${this.disabled}
-            >
-              ${!this._icon && !stateObj?.attributes.icon && stateObj
-                ? html`
-                    <ha-state-icon
-                      slot="start"
-                      .stateObj=${stateObj}
-                    ></ha-state-icon>
-                  `
-                : nothing}
-            </ha-icon-picker>
-          `}
-      ${domain === "switch"
-        ? html`<ha-select
-            .label=${this.hass.localize(
-              "ui.dialogs.entity_registry.editor.device_class"
-            )}
-            @selected=${this._switchAsDomainChanged}
-            value=${this._switchAsLabel(
-              this._switchAsDomain,
-              this._deviceClass
-            )}
-          >
-            <ha-dropdown-item
-              value="switch"
-              .selected=${this._switchAsDomain === "switch" &&
-              (!this._deviceClass || this._deviceClass === "switch")}
-            >
-              ${domainToName(this.hass.localize, "switch")}
-            </ha-dropdown-item>
-            <ha-dropdown-item
-              value="outlet"
-              .selected=${this._switchAsDomain === "switch" &&
-              this._deviceClass === "outlet"}
-            >
-              ${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.device_classes.switch.outlet"
-              )}
-            </ha-dropdown-item>
-            <wa-divider></wa-divider>
-            ${this._switchAsDomainsSorted(
-              SWITCH_AS_DOMAINS,
-              this.hass.localize
-            ).map(
-              (entry) => html`
-                <ha-dropdown-item
-                  .value=${entry.domain}
-                  .selected=${this._switchAsDomain === entry.domain}
-                >
-                  ${entry.label}
-                </ha-dropdown-item>
-              `
-            )}
-          </ha-select>`
-        : this.helperConfigEntry?.domain === "switch_as_x"
-          ? html`<ha-select
-                .label=${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.switch_as_x"
+      ${
+        !this.hideName && this._device
+          ? html`<ha-row-item>
+              <span slot="headline"
+                >${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.use_device_name"
                 )}
-                .value=${this._switchAsLabel(this._switchAsDomain)}
-                @selected=${this._switchAsDomainChanged}
+                (${computeDeviceNameDisplay(
+                  this._device,
+                  this.hass.localize,
+                  this.hass.states
+                )})</span
               >
-                <ha-dropdown-item
-                  value="switch"
-                  .selected=${this._switchAsDomain === "switch"}
-                >
-                  ${domainToName(this.hass.localize, "switch")}
-                </ha-dropdown-item>
-                <ha-dropdown-item
-                  .value=${domain}
-                  .selected=${this._switchAsDomain === domain}
-                >
-                  ${domainToName(this.hass.localize, domain)}
-                </ha-dropdown-item>
-                <wa-divider></wa-divider>
-                ${this._switchAsDomainsSorted(
-                  SWITCH_AS_DOMAINS,
-                  this.hass.localize
-                ).map((entry) =>
-                  domain === entry.domain
-                    ? nothing
-                    : html`
-                        <ha-dropdown-item
-                          .value=${entry.domain}
-                          .selected=${this._switchAsDomain === entry.domain}
-                        >
-                          ${entry.label}
-                        </ha-dropdown-item>
-                      `
+              <span slot="supporting-text"
+                >${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.change_device_settings",
+                  {
+                    link: html`<button
+                      class="link"
+                      @click=${this._openDeviceSettings}
+                    >
+                      ${this.hass.localize(
+                        "ui.dialogs.entity_registry.editor.change_device_name_link"
+                      )}
+                    </button>`,
+                  }
+                )}</span
+              >
+              <ha-switch
+                slot="end"
+                .checked=${this._useDeviceName}
+                .disabled=${this.disabled}
+                @change=${this._useDeviceNameChanged}
+              ></ha-switch>
+            </ha-row-item>`
+          : nothing
+      }
+      ${
+        this.hideName || (this._device && this._useDeviceName)
+          ? nothing
+          : html`<ha-input
+              inset-label
+              class="name"
+              .value=${this._name}
+              .label=${this.hass.localize(
+                "ui.dialogs.entity_registry.editor.name"
+              )}
+              .disabled=${this.disabled}
+              @input=${this._nameChanged}
+            >
+              ${
+                this._name !== defaultName
+                  ? html`<ha-icon-button
+                      slot="end"
+                      .path=${mdiRestore}
+                      .label=${this.hass.localize(
+                        "ui.dialogs.entity_registry.editor.restore_name"
+                      )}
+                      .disabled=${this.disabled}
+                      @click=${this._restoreName}
+                    ></ha-icon-button>`
+                  : nothing
+              }
+            </ha-input>`
+      }
+      ${
+        this.hideIcon
+          ? nothing
+          : html`
+              <ha-icon-picker
+                .value=${this._icon}
+                @value-changed=${this._iconChanged}
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.icon"
                 )}
-              </ha-select>
-              ${SWITCH_AS_DOMAINS_INVERT.includes(this._switchAsDomain)
-                ? html`
-                    <ha-md-list-item>
-                      <span slot="headline"
-                        >${this.hass.localize(
-                          "ui.dialogs.entity_registry.editor.invert.label"
-                        )}</span
-                      >
-                      <span slot="supporting-text"
-                        >${this.hass.localize(
-                          `ui.dialogs.entity_registry.editor.invert.descriptions.${this._switchAsDomain}`
-                        )}</span
-                      >
-                      <ha-switch
-                        slot="end"
-                        .checked=${!!this.entry.options?.switch_as_x?.invert}
-                        @change=${this._switchAsInvertChanged}
-                      ></ha-switch>
-                    </ha-md-list-item>
-                  `
-                : nothing} `
-          : nothing}
-      ${this._deviceClassOptions && !this._hideDeviceClassOverride(domain)
-        ? html`
-            <ha-select
+                .placeholder=${
+                  this.entry.original_icon ||
+                  stateObj?.attributes.icon ||
+                  (stateObj &&
+                    until(
+                      entityIcon(
+                        this.hass.entities,
+                        this.hass.config,
+                        this.hass.connection,
+                        stateObj
+                      )
+                    )) ||
+                  until(entryIcon(this.hass, this.entry))
+                }
+                .disabled=${this.disabled}
+              >
+                ${
+                  !this._icon && !stateObj?.attributes.icon && stateObj
+                    ? html`
+                        <ha-state-icon
+                          slot="start"
+                          .stateObj=${stateObj}
+                        ></ha-state-icon>
+                      `
+                    : nothing
+                }
+              </ha-icon-picker>
+            `
+      }
+      ${
+        domain === "switch"
+          ? html`<ha-select
               .label=${this.hass.localize(
                 "ui.dialogs.entity_registry.editor.device_class"
               )}
-              .value=${this._deviceClass
-                ? this.hass.localize(
-                    `ui.dialogs.entity_registry.editor.device_classes.${domain}.${this._deviceClass}`
-                  )
-                : undefined}
-              clearable
-              @selected=${this._deviceClassChanged}
+              @selected=${this._switchAsDomainChanged}
+              value=${this._switchAsLabel(
+                this._switchAsDomain,
+                this._deviceClass
+              )}
             >
-              ${this._deviceClassesSorted(
-                domain,
-                this._deviceClassOptions[0],
+              <ha-dropdown-item
+                value="switch"
+                .selected=${
+                  this._switchAsDomain === "switch" &&
+                  (!this._deviceClass || this._deviceClass === "switch")
+                }
+              >
+                ${domainToName(this.hass.localize, "switch")}
+              </ha-dropdown-item>
+              <ha-dropdown-item
+                value="outlet"
+                .selected=${
+                  this._switchAsDomain === "switch" &&
+                  this._deviceClass === "outlet"
+                }
+              >
+                ${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.device_classes.switch.outlet"
+                )}
+              </ha-dropdown-item>
+              <wa-divider></wa-divider>
+              ${this._switchAsDomainsSorted(
+                SWITCH_AS_DOMAINS,
                 this.hass.localize
               ).map(
                 (entry) => html`
                   <ha-dropdown-item
-                    .value=${entry.deviceClass}
-                    .selected=${entry.deviceClass === this._deviceClass}
+                    .value=${entry.domain}
+                    .selected=${this._switchAsDomain === entry.domain}
                   >
                     ${entry.label}
                   </ha-dropdown-item>
                 `
               )}
-              ${this._deviceClassOptions[0].length &&
-              this._deviceClassOptions[1].length
-                ? html`<wa-divider></wa-divider>`
-                : nothing}
-              ${this._deviceClassesSorted(
-                domain,
-                this._deviceClassOptions[1],
-                this.hass.localize
-              ).map(
-                (entry) => html`
+            </ha-select>`
+          : this.helperConfigEntry?.domain === "switch_as_x"
+            ? html`<ha-select
+                  .label=${this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.switch_as_x"
+                  )}
+                  .value=${this._switchAsLabel(this._switchAsDomain)}
+                  @selected=${this._switchAsDomainChanged}
+                >
                   <ha-dropdown-item
-                    .value=${entry.deviceClass}
-                    .selected=${entry.deviceClass === this._deviceClass}
+                    value="switch"
+                    .selected=${this._switchAsDomain === "switch"}
                   >
-                    ${entry.label}
+                    ${domainToName(this.hass.localize, "switch")}
                   </ha-dropdown-item>
-                `
-              )}
-            </ha-select>
-          `
-        : nothing}
-      ${domain === "number" &&
-      this._deviceClass &&
-      stateObj?.attributes.unit_of_measurement &&
-      this._numberDeviceClassConvertibleUnits?.includes(
-        stateObj?.attributes.unit_of_measurement
-      )
-        ? html`
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.unit_of_measurement"
-              )}
-              .value=${this._unit_of_measurement ||
-              stateObj.attributes.unit_of_measurement}
-              @selected=${this._unitChanged}
-              .options=${this._numberDeviceClassConvertibleUnits}
-            >
-            </ha-select>
-          `
-        : nothing}
-      ${domain === "lock"
-        ? html`
-            <ha-input
-              .validationMessage=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.default_code_error"
-              )}
-              .value=${this._defaultCode == null ? "" : this._defaultCode}
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.default_code"
-              )}
-              type="password"
-              .invalid=${invalidDefaultCode}
-              .disabled=${this.disabled}
-              @input=${this._defaultcodeChanged}
-              password-toggle
-            ></ha-input>
-          `
-        : nothing}
-      ${domain === "alarm_control_panel"
-        ? html`
-            <ha-input
-              .value=${this._defaultCode == null ? "" : this._defaultCode}
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.default_code"
-              )}
-              type="password"
-              .disabled=${this.disabled}
-              @input=${this._defaultcodeChanged}
-              password-toggle
-            ></ha-input>
-          `
-        : nothing}
-      ${domain === "calendar"
-        ? html`
-            <ha-color-picker
-              .hass=${this.hass}
-              .value=${this._calendarColor ?? ""}
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.calendar_color"
-              )}
-              .disabled=${this.disabled}
-              @value-changed=${this._calendarColorChanged}
-            ></ha-color-picker>
-          `
-        : nothing}
-      ${domain === "device_tracker" &&
-      SCANNER_SOURCE_TYPES.includes(stateObj?.attributes?.source_type)
-        ? html`
-            <ha-entity-picker
-              .hass=${this.hass}
-              .value=${this._associatedZone}
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.associated_zone"
-              )}
-              .includeDomains=${ZONE_DOMAINS}
-              .disabled=${this.disabled}
-              @value-changed=${this._associatedZoneChanged}
-            ></ha-entity-picker>
-          `
-        : nothing}
-      ${domain === "sensor" &&
-      this._deviceClass &&
-      stateObj?.attributes.unit_of_measurement &&
-      this._sensorDeviceClassConvertibleUnits?.includes(
-        stateObj?.attributes.unit_of_measurement
-      )
-        ? html`
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.unit_of_measurement"
-              )}
-              .value=${this._unit_of_measurement ||
-              stateObj.attributes.unit_of_measurement}
-              @selected=${this._unitChanged}
-              .options=${this._sensorDeviceClassConvertibleUnits}
-            >
-            </ha-select>
-          `
-        : nothing}
-      ${domain === "sensor" &&
-      // Allow customizing the precision for a sensor with numerical device class,
-      // a unit of measurement or state class
-      (isNumericSensorDeviceClass(this._deviceClass) ||
-        stateObj?.attributes.unit_of_measurement ||
-        stateObj?.attributes.state_class)
-        ? html`
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.precision"
-              )}
-              .value=${this._precision == null
-                ? "default"
-                : this._precision.toString()}
-              @selected=${this._precisionChanged}
-              .options=${[
-                {
-                  value: "default",
-                  label: this.hass.localize(
-                    "ui.dialogs.entity_registry.editor.precision_default",
-                    {
-                      value: this._precisionLabel(
-                        defaultPrecision,
-                        stateObj?.state
-                      ),
-                    }
-                  ),
-                },
-                ...PRECISIONS.map((precision) => ({
-                  value: precision.toString(),
-                  label: this._precisionLabel(precision, stateObj?.state),
-                })),
-              ]}
-            >
-            </ha-select>
-          `
-        : nothing}
-      ${domain === "weather"
-        ? html`
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.precipitation_unit"
-              )}
-              .value=${this._precipitation_unit || undefined}
-              @selected=${this._precipitationUnitChanged}
-              .options=${this._weatherConvertibleUnits?.precipitation_unit}
-            >
-            </ha-select>
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.pressure_unit"
-              )}
-              .value=${this._pressure_unit || undefined}
-              @selected=${this._pressureUnitChanged}
-              .options=${this._weatherConvertibleUnits?.pressure_unit}
-            >
-            </ha-select>
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.temperature_unit"
-              )}
-              .value=${this._temperature_unit || undefined}
-              @selected=${this._temperatureUnitChanged}
-              .options=${this._weatherConvertibleUnits?.temperature_unit}
-            >
-            </ha-select>
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.visibility_unit"
-              )}
-              .value=${this._visibility_unit || undefined}
-              @selected=${this._visibilityUnitChanged}
-              .options=${this._weatherConvertibleUnits?.visibility_unit}
-            >
-            </ha-select>
-            <ha-select
-              .label=${this.hass.localize(
-                "ui.dialogs.entity_registry.editor.wind_speed_unit"
-              )}
-              .value=${this._wind_speed_unit || undefined}
-              @selected=${this._windSpeedUnitChanged}
-              .options=${this._weatherConvertibleUnits?.wind_speed_unit}
-            >
-            </ha-select>
-          `
-        : nothing}
+                  <ha-dropdown-item
+                    .value=${domain}
+                    .selected=${this._switchAsDomain === domain}
+                  >
+                    ${domainToName(this.hass.localize, domain)}
+                  </ha-dropdown-item>
+                  <wa-divider></wa-divider>
+                  ${this._switchAsDomainsSorted(
+                    SWITCH_AS_DOMAINS,
+                    this.hass.localize
+                  ).map((entry) =>
+                    domain === entry.domain
+                      ? nothing
+                      : html`
+                          <ha-dropdown-item
+                            .value=${entry.domain}
+                            .selected=${this._switchAsDomain === entry.domain}
+                          >
+                            ${entry.label}
+                          </ha-dropdown-item>
+                        `
+                  )}
+                </ha-select>
+                ${
+                  SWITCH_AS_DOMAINS_INVERT.includes(this._switchAsDomain)
+                    ? html`
+                        <ha-row-item>
+                          <span slot="headline"
+                            >${this.hass.localize(
+                              "ui.dialogs.entity_registry.editor.invert.label"
+                            )}</span
+                          >
+                          <span slot="supporting-text"
+                            >${this.hass.localize(
+                              `ui.dialogs.entity_registry.editor.invert.descriptions.${this._switchAsDomain}`
+                            )}</span
+                          >
+                          <ha-switch
+                            slot="end"
+                            .checked=${!!this.entry.options?.switch_as_x?.invert}
+                            @change=${this._switchAsInvertChanged}
+                          ></ha-switch>
+                        </ha-row-item>
+                      `
+                    : nothing
+                } `
+            : nothing
+      }
+      ${
+        this._deviceClassOptions && !this._hideDeviceClassOverride(domain)
+          ? html`
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.device_class"
+                )}
+                .value=${
+                  this._deviceClass
+                    ? this.hass.localize(
+                        `ui.dialogs.entity_registry.editor.device_classes.${domain}.${this._deviceClass}`
+                      )
+                    : undefined
+                }
+                clearable
+                @selected=${this._deviceClassChanged}
+              >
+                ${this._deviceClassesSorted(
+                  domain,
+                  this._deviceClassOptions[0],
+                  this.hass.localize
+                ).map(
+                  (entry) => html`
+                    <ha-dropdown-item
+                      .value=${entry.deviceClass}
+                      .selected=${entry.deviceClass === this._deviceClass}
+                    >
+                      ${entry.label}
+                    </ha-dropdown-item>
+                  `
+                )}
+                ${
+                  this._deviceClassOptions[0].length &&
+                  this._deviceClassOptions[1].length
+                    ? html`<wa-divider></wa-divider>`
+                    : nothing
+                }
+                ${this._deviceClassesSorted(
+                  domain,
+                  this._deviceClassOptions[1],
+                  this.hass.localize
+                ).map(
+                  (entry) => html`
+                    <ha-dropdown-item
+                      .value=${entry.deviceClass}
+                      .selected=${entry.deviceClass === this._deviceClass}
+                    >
+                      ${entry.label}
+                    </ha-dropdown-item>
+                  `
+                )}
+              </ha-select>
+            `
+          : nothing
+      }
+      ${
+        domain === "number" &&
+        this._deviceClass &&
+        stateObj?.attributes.unit_of_measurement &&
+        this._numberDeviceClassConvertibleUnits?.includes(
+          stateObj?.attributes.unit_of_measurement
+        )
+          ? html`
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.unit_of_measurement"
+                )}
+                .value=${
+                  this._unit_of_measurement ||
+                  stateObj.attributes.unit_of_measurement
+                }
+                @selected=${this._unitChanged}
+                .options=${this._numberDeviceClassConvertibleUnits}
+              >
+              </ha-select>
+            `
+          : nothing
+      }
+      ${
+        domain === "lock"
+          ? html`
+              <ha-input
+                .validationMessage=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.default_code_error"
+                )}
+                .value=${this._defaultCode == null ? "" : this._defaultCode}
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.default_code"
+                )}
+                type="password"
+                .invalid=${invalidDefaultCode}
+                .disabled=${this.disabled}
+                @input=${this._defaultcodeChanged}
+                password-toggle
+              ></ha-input>
+            `
+          : nothing
+      }
+      ${
+        domain === "alarm_control_panel"
+          ? html`
+              <ha-input
+                .value=${this._defaultCode == null ? "" : this._defaultCode}
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.default_code"
+                )}
+                type="password"
+                .disabled=${this.disabled}
+                @input=${this._defaultcodeChanged}
+                password-toggle
+              ></ha-input>
+            `
+          : nothing
+      }
+      ${
+        domain === "calendar"
+          ? html`
+              <ha-color-picker
+                .hass=${this.hass}
+                .value=${this._calendarColor ?? ""}
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.calendar_color"
+                )}
+                .disabled=${this.disabled}
+                @value-changed=${this._calendarColorChanged}
+              ></ha-color-picker>
+            `
+          : nothing
+      }
+      ${
+        domain === "device_tracker" &&
+        SCANNER_SOURCE_TYPES.includes(stateObj?.attributes?.source_type)
+          ? html`
+              <ha-entity-picker
+                .value=${this._associatedZone}
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.associated_zone"
+                )}
+                .includeDomains=${ZONE_DOMAINS}
+                .disabled=${this.disabled}
+                @value-changed=${this._associatedZoneChanged}
+              ></ha-entity-picker>
+            `
+          : nothing
+      }
+      ${
+        domain === "sensor" &&
+        this._deviceClass &&
+        stateObj?.attributes.unit_of_measurement &&
+        this._sensorDeviceClassConvertibleUnits?.includes(
+          stateObj?.attributes.unit_of_measurement
+        )
+          ? html`
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.unit_of_measurement"
+                )}
+                .value=${
+                  this._unit_of_measurement ||
+                  stateObj.attributes.unit_of_measurement
+                }
+                @selected=${this._unitChanged}
+                .options=${this._sensorDeviceClassConvertibleUnits}
+              >
+              </ha-select>
+            `
+          : nothing
+      }
+      ${
+        domain === "sensor" &&
+        // Allow customizing the precision for a sensor with numerical device class,
+        // a unit of measurement or state class
+        (isNumericSensorDeviceClass(this._deviceClass) ||
+          stateObj?.attributes.unit_of_measurement ||
+          stateObj?.attributes.state_class)
+          ? html`
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.precision"
+                )}
+                .value=${
+                  this._precision == null
+                    ? "default"
+                    : this._precision.toString()
+                }
+                @selected=${this._precisionChanged}
+                .options=${[
+                  {
+                    value: "default",
+                    label: this.hass.localize(
+                      "ui.dialogs.entity_registry.editor.precision_default",
+                      {
+                        value: this._precisionLabel(
+                          defaultPrecision,
+                          stateObj?.state
+                        ),
+                      }
+                    ),
+                  },
+                  ...PRECISIONS.map((precision) => ({
+                    value: precision.toString(),
+                    label: this._precisionLabel(precision, stateObj?.state),
+                  })),
+                ]}
+              >
+              </ha-select>
+            `
+          : nothing
+      }
+      ${
+        domain === "weather"
+          ? html`
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.precipitation_unit"
+                )}
+                .value=${this._precipitation_unit || undefined}
+                @selected=${this._precipitationUnitChanged}
+                .options=${this._weatherConvertibleUnits?.precipitation_unit}
+              >
+              </ha-select>
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.pressure_unit"
+                )}
+                .value=${this._pressure_unit || undefined}
+                @selected=${this._pressureUnitChanged}
+                .options=${this._weatherConvertibleUnits?.pressure_unit}
+              >
+              </ha-select>
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.temperature_unit"
+                )}
+                .value=${this._temperature_unit || undefined}
+                @selected=${this._temperatureUnitChanged}
+                .options=${this._weatherConvertibleUnits?.temperature_unit}
+              >
+              </ha-select>
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.visibility_unit"
+                )}
+                .value=${this._visibility_unit || undefined}
+                @selected=${this._visibilityUnitChanged}
+                .options=${this._weatherConvertibleUnits?.visibility_unit}
+              >
+              </ha-select>
+              <ha-select
+                .label=${this.hass.localize(
+                  "ui.dialogs.entity_registry.editor.wind_speed_unit"
+                )}
+                .value=${this._wind_speed_unit || undefined}
+                @selected=${this._windSpeedUnitChanged}
+                .options=${this._weatherConvertibleUnits?.wind_speed_unit}
+              >
+              </ha-select>
+            `
+          : nothing
+      }
       <ha-input
         class="entityId"
         .value=${computeObjectId(this._entityId)}
@@ -896,173 +985,179 @@ export class EntityRegistrySettingsEditor extends LitElement {
           )}
         ></ha-icon-button>
       </ha-input>
-      ${!this.entry.device_id
-        ? html`<ha-area-picker
-            .value=${this._areaId}
-            .disabled=${this.disabled}
-            @value-changed=${this._areaPicked}
-          ></ha-area-picker>`
-        : nothing}
+      ${
+        !this.entry.device_id
+          ? html`<ha-area-picker
+              .value=${this._areaId}
+              .disabled=${this.disabled}
+              @value-changed=${this._areaPicked}
+            ></ha-area-picker>`
+          : nothing
+      }
       <ha-labels-picker
         .hass=${this.hass}
         .value=${this._labels}
         .disabled=${!!this.disabled}
         @value-changed=${this._labelsChanged}
       ></ha-labels-picker>
-      ${this._cameraPrefs
-        ? html`
-            <ha-md-list-item>
-              <span slot="headline"
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.stream.preload_stream"
-                )}</span
-              >
-              <span slot="supporting-text"
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.stream.preload_stream_description"
-                )}</span
-              >
-              <ha-switch
-                slot="end"
-                .checked=${this._cameraPrefs.preload_stream}
-                .disabled=${this.disabled}
-                @change=${this._handleCameraPrefsChanged}
-              ></ha-switch>
-            </ha-md-list-item>
-            <ha-md-list-item>
-              <span slot="headline"
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.stream.stream_orientation"
-                )}</span
-              >
-              <span slot="supporting-text"
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.stream.stream_orientation_description"
-                )}</span
-              >
-              <ha-select
-                slot="supporting-text"
-                .label=${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.stream.stream_orientation"
-                )}
-                .disabled=${this.disabled}
-                @selected=${this._handleCameraOrientationChanged}
-                .options=${CAMERA_ORIENTATIONS.map((num) => ({
-                  value: num.toString(),
-                  label: this.hass.localize(
-                    ("ui.dialogs.entity_registry.editor.stream.stream_orientation_" +
-                      num.toString()) as LocalizeKeys
-                  ),
-                }))}
-                .value=${this._cameraPrefs.orientation.toString()}
-              >
-              </ha-select>
-            </ha-md-list-item>
-          `
-        : nothing}
-      ${this.helperConfigEntry &&
-      this.helperConfigEntry.supports_options &&
-      this.helperConfigEntry.domain !== "switch_as_x"
-        ? html`
-            <ha-list-item
-              class="menu-item"
-              twoline
-              hasMeta
-              .disabled=${this.disabled}
-              @click=${this._showOptionsFlow}
-            >
-              <span
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.configure_state",
-                  {
-                    integration: domainToName(
-                      this.hass.localize,
-                      this.helperConfigEntry.domain
+      ${
+        this._cameraPrefs
+          ? html`
+              <ha-row-item>
+                <span slot="headline"
+                  >${this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.stream.preload_stream"
+                  )}</span
+                >
+                <span slot="supporting-text"
+                  >${this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.stream.preload_stream_description"
+                  )}</span
+                >
+                <ha-switch
+                  slot="end"
+                  .checked=${this._cameraPrefs.preload_stream}
+                  .disabled=${this.disabled}
+                  @change=${this._handleCameraPrefsChanged}
+                ></ha-switch>
+              </ha-row-item>
+              <ha-row-item>
+                <span slot="headline"
+                  >${this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.stream.stream_orientation"
+                  )}</span
+                >
+                <span slot="supporting-text"
+                  >${this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.stream.stream_orientation_description"
+                  )}</span
+                >
+                <ha-select
+                  slot="supporting-text"
+                  .label=${this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.stream.stream_orientation"
+                  )}
+                  .disabled=${this.disabled}
+                  @selected=${this._handleCameraOrientationChanged}
+                  .options=${CAMERA_ORIENTATIONS.map((num) => ({
+                    value: num.toString(),
+                    label: this.hass.localize(
+                      ("ui.dialogs.entity_registry.editor.stream.stream_orientation_" +
+                        num.toString()) as LocalizeKeys
                     ),
-                  }
-                )}</span
-              >
-              <span slot="secondary"
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.configure_state_secondary",
-                  {
-                    integration: domainToName(
-                      this.hass.localize,
-                      this.helperConfigEntry.domain
-                    ),
-                  }
-                )}</span
-              >
-              <ha-icon-next slot="meta"></ha-icon-next>
-            </ha-list-item>
-          `
-        : nothing}
-
-      <ha-list-item
-        class="menu-item"
-        twoline
-        hasMeta
-        .disabled=${this.disabled}
-        @click=${this._handleVoiceAssistantsClicked}
-      >
-        <span
-          >${this.hass.localize(
-            "ui.dialogs.entity_registry.editor.voice_assistants"
-          )}</span
+                  }))}
+                  .value=${this._cameraPrefs.orientation.toString()}
+                >
+                </ha-select>
+              </ha-row-item>
+            `
+          : nothing
+      }
+      <ha-list-base>
+        ${
+          this.helperConfigEntry &&
+          this.helperConfigEntry.supports_options &&
+          this.helperConfigEntry.domain !== "switch_as_x"
+            ? html`
+                <ha-list-item-button
+                  class="menu-item"
+                  .disabled=${this.disabled}
+                  @click=${this._showOptionsFlow}
+                >
+                  <span slot="headline"
+                    >${this.hass.localize(
+                      "ui.dialogs.entity_registry.editor.configure_state",
+                      {
+                        integration: domainToName(
+                          this.hass.localize,
+                          this.helperConfigEntry.domain
+                        ),
+                      }
+                    )}</span
+                  >
+                  <span slot="supporting-text"
+                    >${this.hass.localize(
+                      "ui.dialogs.entity_registry.editor.configure_state_secondary",
+                      {
+                        integration: domainToName(
+                          this.hass.localize,
+                          this.helperConfigEntry.domain
+                        ),
+                      }
+                    )}</span
+                  >
+                  <ha-icon-next slot="end"></ha-icon-next>
+                </ha-list-item-button>
+              `
+            : nothing
+        }
+        <ha-list-item-button
+          class="menu-item"
+          .disabled=${this.disabled}
+          @click=${this._handleVoiceAssistantsClicked}
         >
-        <span slot="secondary">
-          ${this.entry.aliases.filter((a) => a !== null).length
-            ? this.entry.aliases
-                .filter((a): a is string => a !== null)
-                .join(", ")
-            : this.hass.localize(
-                "ui.dialogs.entity_registry.editor.no_aliases"
-              )}
-        </span>
-        <ha-icon-next slot="meta"></ha-icon-next>
-      </ha-list-item>
-
-      ${domain === "vacuum" &&
-      stateObj &&
-      supportsFeature(stateObj, VacuumEntityFeature.CLEAN_AREA)
-        ? html`
-            <ha-list-item
-              class="menu-item"
-              twoline
-              hasMeta
-              .disabled=${this.disabled}
-              @click=${this._handleVacuumSegmentMappingClicked}
-            >
-              <span
-                >${this.hass.localize(
-                  "ui.dialogs.vacuum_segment_mapping.title"
-                )}</span
-              >
-              <span slot="secondary">
-                ${this.hass.localize(
-                  "ui.dialogs.vacuum_segment_mapping.description"
-                )}
-              </span>
-              <ha-icon-next slot="meta"></ha-icon-next>
-            </ha-list-item>
-          `
-        : nothing}
-      ${this._disabledBy &&
-      this._disabledBy !== "user" &&
-      this._disabledBy !== "integration"
-        ? html`<ha-alert alert-type="warning"
+          <span slot="headline"
             >${this.hass.localize(
-              "ui.dialogs.entity_registry.editor.enabled_cause",
-              {
-                cause: this.hass.localize(
-                  `config_entry.disabled_by.${this._disabledBy!}`
-                ),
-              }
-            )}</ha-alert
-          >`
-        : nothing}
+              "ui.dialogs.entity_registry.editor.voice_assistants"
+            )}</span
+          >
+          <span slot="supporting-text">
+            ${
+              this.entry.aliases.filter((a) => a !== null).length
+                ? this.entry.aliases
+                    .filter((a): a is string => a !== null)
+                    .join(", ")
+                : this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.no_aliases"
+                  )
+            }
+          </span>
+          <ha-icon-next slot="end"></ha-icon-next>
+        </ha-list-item-button>
+        ${
+          domain === "vacuum" &&
+          stateObj &&
+          supportsFeature(stateObj, VacuumEntityFeature.CLEAN_AREA)
+            ? html`
+                <ha-list-item-button
+                  class="menu-item"
+                  .disabled=${this.disabled}
+                  @click=${this._handleVacuumSegmentMappingClicked}
+                >
+                  <span slot="headline"
+                    >${this.hass.localize(
+                      "ui.dialogs.vacuum_segment_mapping.title"
+                    )}</span
+                  >
+                  <span slot="supporting-text">
+                    ${this.hass.localize(
+                      "ui.dialogs.vacuum_segment_mapping.description"
+                    )}
+                  </span>
+                  <ha-icon-next slot="end"></ha-icon-next>
+                </ha-list-item-button>
+              `
+            : nothing
+        }
+      </ha-list-base>
+      ${
+        this._disabledBy &&
+        this._disabledBy !== "user" &&
+        this._disabledBy !== "integration"
+          ? html`<ha-alert alert-type="warning"
+              >${this.hass.localize(
+                "ui.dialogs.entity_registry.editor.enabled_cause",
+                {
+                  cause: this.hass.localize(
+                    `config_entry.disabled_by.${this._disabledBy!}`
+                  ),
+                }
+              )}</ha-alert
+            >`
+          : nothing
+      }
 
-      <ha-md-list-item>
+      <ha-row-item>
         <span slot="headline"
           >${this.hass.localize(
             "ui.dialogs.entity_registry.editor.enabled_label"
@@ -1076,29 +1171,33 @@ export class EntityRegistrySettingsEditor extends LitElement {
         <ha-switch
           slot="end"
           .checked=${!this._disabledBy}
-          .disabled=${this.disabled ||
-          this._device?.disabled_by ||
-          (this._disabledBy &&
-            this._disabledBy !== "user" &&
-            this._disabledBy !== "integration")}
+          .disabled=${
+            this.disabled ||
+            this._device?.disabled_by ||
+            (this._disabledBy &&
+              this._disabledBy !== "user" &&
+              this._disabledBy !== "integration")
+          }
           @change=${this._enabledChanged}
         ></ha-switch>
-      </ha-md-list-item>
+      </ha-row-item>
 
-      ${this._hiddenBy && this._hiddenBy !== "user"
-        ? html`<ha-alert alert-type="warning"
-            >${this.hass.localize(
-              "ui.dialogs.entity_registry.editor.hidden_cause",
-              {
-                cause: this.hass.localize(
-                  `config_entry.hidden_by.${this._hiddenBy!}`
-                ),
-              }
-            )}</ha-alert
-          >`
-        : nothing}
+      ${
+        this._hiddenBy && this._hiddenBy !== "user"
+          ? html`<ha-alert alert-type="warning"
+              >${this.hass.localize(
+                "ui.dialogs.entity_registry.editor.hidden_cause",
+                {
+                  cause: this.hass.localize(
+                    `config_entry.hidden_by.${this._hiddenBy!}`
+                  ),
+                }
+              )}</ha-alert
+            >`
+          : nothing
+      }
 
-      <ha-md-list-item>
+      <ha-row-item>
         <span slot="headline"
           >${this.hass.localize(
             "ui.dialogs.entity_registry.editor.visible_label"
@@ -1115,61 +1214,88 @@ export class EntityRegistrySettingsEditor extends LitElement {
           .disabled=${this.disabled || this._disabledBy}
           @change=${this._hiddenChanged}
         ></ha-switch>
-      </ha-md-list-item>
+      </ha-row-item>
 
-      ${this.entry.device_id
-        ? html`
-            <ha-md-list-item>
-              <span slot="headline"
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.use_device_area"
-                )}
-                ${this.hass.devices[this.entry.device_id].area_id
-                  ? `(${
-                      this.hass.areas[
-                        this.hass.devices[this.entry.device_id].area_id!
-                      ]?.name
-                    })`
-                  : nothing}</span
-              >
-              <span slot="supporting-text"
-                >${this.hass.localize(
-                  "ui.dialogs.entity_registry.editor.change_device_settings",
-                  {
-                    link: html`<button
-                      class="link"
-                      @click=${this._openDeviceSettings}
-                    >
-                      ${this.hass.localize(
-                        "ui.dialogs.entity_registry.editor.change_device_area_link"
-                      )}
-                    </button>`,
-                  }
-                )}</span
-              >
-              <ha-switch
-                slot="end"
-                .checked=${!this._areaId || this._noDeviceArea}
-                .disabled=${this.disabled}
-                @change=${this._useDeviceAreaChanged}
-              ></ha-switch>
-            </ha-md-list-item>
-            ${this._areaId || this._noDeviceArea
-              ? html`<ha-area-picker
-                  .value=${this._areaId}
-                  .disabled=${this.disabled}
-                  @value-changed=${this._areaPicked}
-                ></ha-area-picker>`
-              : nothing}
-          `
-        : nothing}
+      ${
+        this.entry.device_id
+          ? html`
+              <ha-row-item class="device-area">
+                <span slot="headline"
+                  >${this.hass.localize(
+                    "ui.dialogs.entity_registry.editor.use_device_area"
+                  )}
+                  ${
+                    this.hass.devices[this.entry.device_id].area_id
+                      ? `(${
+                          this.hass.areas[
+                            this.hass.devices[this.entry.device_id].area_id!
+                          ]?.name
+                        })`
+                      : nothing
+                  }</span
+                >
+                <span slot="supporting-text"
+                  >${this.hass.localize(
+                    !this._hasOwnName
+                      ? "ui.dialogs.entity_registry.editor.use_device_area_required"
+                      : "ui.dialogs.entity_registry.editor.change_device_settings",
+                    {
+                      link: html`<button
+                        class="link"
+                        @click=${this._openDeviceSettings}
+                      >
+                        ${this.hass.localize(
+                          "ui.dialogs.entity_registry.editor.change_device_area_link"
+                        )}
+                      </button>`,
+                    }
+                  )}</span
+                >
+                <ha-switch
+                  slot="end"
+                  .checked=${live(
+                    this._useDeviceArea ||
+                      (!this._areaId && !this._noDeviceArea)
+                  )}
+                  .disabled=${this.disabled || this._useDeviceArea}
+                  @change=${this._useDeviceAreaChanged}
+                ></ha-switch>
+              </ha-row-item>
+              ${
+                !this._useDeviceArea && (this._areaId || this._noDeviceArea)
+                  ? html`<ha-area-picker
+                      .value=${this._areaId}
+                      .disabled=${this.disabled}
+                      @value-changed=${this._areaPicked}
+                    ></ha-area-picker>`
+                  : nothing
+              }
+            `
+          : nothing
+      }
     `;
   }
 
-  public async updateEntry(): Promise<{
-    close: boolean;
-    entry: ExtEntityRegistryEntry;
-  }> {
+  public async updateEntry(): Promise<
+    { close: boolean; entry: ExtEntityRegistryEntry } | undefined
+  > {
+    if (this._useDeviceArea && this._areaId) {
+      const confirmed = await showConfirmationDialog(this, {
+        title: this.hass.localize(
+          "ui.dialogs.entity_registry.editor.use_device_area_confirm_title"
+        ),
+        text: this.hass.localize(
+          "ui.dialogs.entity_registry.editor.use_device_area_confirm_text",
+          { area: this.hass.areas[this._areaId]?.name ?? this._areaId }
+        ),
+        confirmText: this.hass.localize("ui.common.save"),
+        dismissText: this.hass.localize("ui.common.cancel"),
+      });
+      if (!confirmed) {
+        return undefined;
+      }
+    }
+
     let close = true;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let parent: HTMLElement = this;
@@ -1178,9 +1304,9 @@ export class EntityRegistrySettingsEditor extends LitElement {
     }
 
     const params: Partial<EntityRegistryEntryUpdateParams> = {
-      name: this._name.trim() || null,
+      name: this._computeName(),
       icon: this._icon.trim() || null,
-      area_id: this._areaId || null,
+      area_id: this._computeAreaId(),
       labels: this._labels || [],
       new_entity_id: this._entityId.trim(),
     };
@@ -1326,7 +1452,7 @@ export class EntityRegistrySettingsEditor extends LitElement {
             invert: this._switchAsInvert,
             target_domain: this._switchAsDomain,
           }
-        )) as DataEntryFlowStepCreateEntry;
+        )) as DataEntryFlowStepCreateEntry<ConfigEntry>;
         if (configFlowResult.result?.entry_id) {
           try {
             const entry = await this._waitForEntityRegistryUpdate(
@@ -1392,7 +1518,7 @@ export class EntityRegistrySettingsEditor extends LitElement {
               invert: this._switchAsInvert,
               target_domain: this._switchAsDomain,
             }
-          )) as DataEntryFlowStepCreateEntry;
+          )) as DataEntryFlowStepCreateEntry<ConfigEntry>;
           if (configFlowResult.result?.entry_id) {
             try {
               const entry = await this._waitForEntityRegistryUpdate(
@@ -1625,9 +1751,56 @@ export class EntityRegistrySettingsEditor extends LitElement {
     }
   }
 
-  private _resetNameAndOpenDeviceSettings() {
-    this._name = this.entry.name || "";
-    this._openDeviceSettings();
+  private _useDeviceNameChanged(ev: HASSDomCurrentTargetEvent<HaSwitch>): void {
+    this._useDeviceName = ev.currentTarget.checked;
+    this._ownAreaWithoutName = false;
+  }
+
+  private get _hasOwnName(): boolean {
+    if (this._device && this._useDeviceName) {
+      return false;
+    }
+    return !!(this._computeName() ?? this._originalName);
+  }
+
+  private get _entryName(): string | undefined {
+    return computeEntityEntryName(this.entry, this.hass.devices);
+  }
+
+  private get _useDeviceArea(): boolean {
+    return !!this._device && !this._hasOwnName && !this._ownAreaWithoutName;
+  }
+
+  private get _originalName(): string {
+    return String(this.entry.original_name ?? "");
+  }
+
+  private _restoreName(): void {
+    this._name = this._originalName;
+    if (this._device && !this._originalName) {
+      this._useDeviceName = true;
+    }
+  }
+
+  private _computeAreaId(): string | null {
+    if (this._useDeviceArea) {
+      return null;
+    }
+    return this._areaId || null;
+  }
+
+  private _computeName(): string | null {
+    if (this.hideName) {
+      return this.entry.name;
+    }
+    if (this._device && this._useDeviceName) {
+      if (!this._entryName) {
+        return this.entry.name;
+      }
+      return this._originalName ? "" : null;
+    }
+    const name = this._name.trim();
+    return name && name !== this._originalName ? name : null;
   }
 
   private _openDeviceSettings() {
@@ -1738,12 +1911,19 @@ export class EntityRegistrySettingsEditor extends LitElement {
 
         ha-input.name {
           --ha-input-start-max-width: 35%;
+          --ha-input-padding-bottom: 0;
         }
         ha-input.entityId ha-icon-button:last-child {
           margin-inline-start: 0;
         }
 
-        ha-md-list-item ha-select {
+        ha-row-item.device-area::part(supporting-text) {
+          white-space: normal;
+        }
+        ha-row-item {
+          --ha-row-item-padding-inline: 0;
+        }
+        ha-row-item ha-select {
           width: auto;
         }
         ha-input,
@@ -1755,11 +1935,11 @@ export class EntityRegistrySettingsEditor extends LitElement {
           width: 100%;
         }
         .menu-item {
+          --ha-row-item-padding-inline: 0;
           border-radius: var(--ha-border-radius-sm);
           margin-top: 3px;
           margin-bottom: 3px;
           overflow: hidden;
-          --mdc-list-side-padding: 13px;
         }
         .entityId {
           direction: ltr;

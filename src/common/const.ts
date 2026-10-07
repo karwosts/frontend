@@ -91,7 +91,14 @@ export const STATES_OFF = ["closed", "locked", "off"];
 export const BINARY_STATE_ON = "on";
 export const BINARY_STATE_OFF = "off";
 
-/** Domains where we allow toggle in Lovelace. */
+/** Domains where we allow toggle in Lovelace.
+ *  This is not strictly a list of what is possible to toggle, but the list of
+ *  domains where toggle is considered the primary default behavior.
+ *  Entities card uses this to determine which entities are controlled by the
+ *  header toggle.
+ *  Some cards use this to decide the default tap action.
+ *  Use canToggleDomain/canToggleState for determining if toggling is possible.
+ */
 export const DOMAINS_TOGGLE = new Set([
   "fan",
   "input_boolean",
@@ -111,7 +118,7 @@ export const DOMAINS_WITH_DYNAMIC_PICTURE = new Set([
 ]);
 
 /** Domains that use a timestamp for state. */
-export const TIMESTAMP_STATE_DOMAINS = new Set([
+const TIMESTAMP_STATE_DOMAINS_LIST = [
   "ai_task",
   "button",
   "conversation",
@@ -127,7 +134,14 @@ export const TIMESTAMP_STATE_DOMAINS = new Set([
   "tts",
   "wake_word",
   "datetime",
-]);
+] as const;
+
+export type TimestampStateDomain =
+  (typeof TIMESTAMP_STATE_DOMAINS_LIST)[number];
+
+export const TIMESTAMP_STATE_DOMAINS = new Set<string>(
+  TIMESTAMP_STATE_DOMAINS_LIST
+);
 
 /** Temperature units. */
 export const UNIT_C = "°C";

@@ -7,6 +7,8 @@ export const loadAutomationSaveDialog = () =>
   import("./dialog-automation-save");
 
 interface BaseRenameDialogParams {
+  /** Whether back closes the dialog. Off while a navigation is in flight. */
+  addHistory?: boolean;
   entityRegistryUpdate?: EntityRegistryUpdate;
   entityRegistryEntry?: EntityRegistryEntry;
   onClose: () => void;
@@ -42,8 +44,7 @@ export interface ScriptSaveDialogParams extends BaseRenameDialogParams {
 }
 
 export type SaveDialogParams =
-  | AutomationSaveDialogParams
-  | ScriptSaveDialogParams;
+  AutomationSaveDialogParams | ScriptSaveDialogParams;
 
 export const showAutomationSaveDialog = (
   element: HTMLElement,
@@ -53,5 +54,6 @@ export const showAutomationSaveDialog = (
     dialogTag: "ha-dialog-automation-save",
     dialogImport: loadAutomationSaveDialog,
     dialogParams,
+    addHistory: dialogParams.addHistory,
   });
 };

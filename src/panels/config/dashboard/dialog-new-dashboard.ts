@@ -4,6 +4,7 @@ import type { CSSResultGroup } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
+import type { HASSDomTargetEvent } from "../../../common/dom/fire_event";
 import { fireEvent } from "../../../common/dom/fire_event";
 import type { WindowWithPreloads } from "../../../data/preloads";
 import type {
@@ -155,111 +156,121 @@ class DialogNewDashboard extends LitElement implements HassDialog {
             @input=${this._handleSearchChange}
           ></ha-input-search>
           <div class="content ha-scrollbar">
-            ${this._filter
-              ? html`
-                  <div class="cards-container">
-                    ${this._filterStrategies(
-                      this._localizedStrategies,
-                      this._filter
-                    ).map(
-                      (strategy) => html`
-                        <dashboard-card
-                          .name=${strategy.localizedName}
-                          .description=${strategy.localizedDescription}
-                          .img=${this.hass.themes.darkMode
-                            ? strategy.images.dark
-                            : strategy.images.light}
-                          .alt=${strategy.localizedName}
-                          @click=${this._selected}
-                          .strategy=${strategy.type}
-                        ></dashboard-card>
-                      `
-                    )}
-                    ${this._filterCustomStrategies(
-                      this._customStrategies,
-                      this._filter
-                    ).map(
-                      (strategy) => html`
-                        <dashboard-card
-                          .name=${strategy.name || strategy.type}
-                          .description=${strategy.description || ""}
-                          @click=${this._selected}
-                          .strategy=${CUSTOM_TYPE_PREFIX + strategy.type}
-                        ></dashboard-card>
-                      `
-                    )}
-                  </div>
-                `
-              : html`
-                  <div class="cards-container">
-                    <dashboard-card
-                      .name=${this.hass.localize(
-                        `ui.panel.config.lovelace.dashboards.dialog_new.create_empty`
+            ${
+              this._filter
+                ? html`
+                    <div class="cards-container">
+                      ${this._filterStrategies(
+                        this._localizedStrategies,
+                        this._filter
+                      ).map(
+                        (strategy) => html`
+                          <dashboard-card
+                            .name=${strategy.localizedName}
+                            .description=${strategy.localizedDescription}
+                            .img=${
+                              this.hass.themes.darkMode
+                                ? strategy.images.dark
+                                : strategy.images.light
+                            }
+                            .alt=${strategy.localizedName}
+                            @click=${this._selected}
+                            .strategy=${strategy.type}
+                          ></dashboard-card>
+                        `
                       )}
-                      .description=${this.hass.localize(
-                        `ui.panel.config.lovelace.dashboards.dialog_new.create_empty_description`
-                      )}
-                      .img=${this.hass.themes.darkMode
-                        ? "/static/images/dashboard-options/dark/icon-dashboard-new.svg"
-                        : "/static/images/dashboard-options/light/icon-dashboard-new.svg"}
-                      .alt=${this.hass.localize(
-                        `ui.panel.config.lovelace.dashboards.dialog_new.create_empty`
-                      )}
-                      @click=${this._selected}
-                      .config=${defaultConfig}
-                    ></dashboard-card>
-                  </div>
-                  <div class="cards-container">
-                    <div class="cards-container-header">
-                      ${this.hass.localize(
-                        `ui.panel.config.lovelace.dashboards.dialog_new.heading.default`
+                      ${this._filterCustomStrategies(
+                        this._customStrategies,
+                        this._filter
+                      ).map(
+                        (strategy) => html`
+                          <dashboard-card
+                            .name=${strategy.name || strategy.type}
+                            .description=${strategy.description || ""}
+                            @click=${this._selected}
+                            .strategy=${CUSTOM_TYPE_PREFIX + strategy.type}
+                          ></dashboard-card>
+                        `
                       )}
                     </div>
-                    ${this._localizedStrategies.map(
-                      (strategy) => html`
-                        <dashboard-card
-                          .name=${strategy.localizedName}
-                          .description=${strategy.localizedDescription}
-                          .img=${this.hass.themes.darkMode
-                            ? strategy.images.dark
-                            : strategy.images.light}
-                          .alt=${strategy.localizedName}
-                          @click=${this._selected}
-                          .strategy=${strategy.type}
-                        ></dashboard-card>
-                      `
-                    )}
-                  </div>
-                  ${this._customStrategies.length > 0
-                    ? html`
-                        <div class="cards-container">
-                          <div class="cards-container-header">
-                            ${this.hass.localize(
-                              `ui.panel.config.lovelace.dashboards.dialog_new.heading.custom`
-                            )}
-                          </div>
-                          ${this._customStrategies.map(
-                            (strategy) => html`
-                              <dashboard-card
-                                .name=${strategy.name || strategy.type}
-                                .description=${strategy.description || ""}
-                                @click=${this._selected}
-                                .strategy=${CUSTOM_TYPE_PREFIX + strategy.type}
-                              ></dashboard-card>
-                            `
-                          )}
-                        </div>
-                      `
-                    : nothing}
-                `}
+                  `
+                : html`
+                    <div class="cards-container">
+                      <dashboard-card
+                        .name=${this.hass.localize(
+                          `ui.panel.config.lovelace.dashboards.dialog_new.create_empty`
+                        )}
+                        .description=${this.hass.localize(
+                          `ui.panel.config.lovelace.dashboards.dialog_new.create_empty_description`
+                        )}
+                        .img=${
+                          this.hass.themes.darkMode
+                            ? "/static/images/dashboard-options/dark/icon-dashboard-new.svg"
+                            : "/static/images/dashboard-options/light/icon-dashboard-new.svg"
+                        }
+                        .alt=${this.hass.localize(
+                          `ui.panel.config.lovelace.dashboards.dialog_new.create_empty`
+                        )}
+                        @click=${this._selected}
+                        .config=${defaultConfig}
+                      ></dashboard-card>
+                    </div>
+                    <div class="cards-container">
+                      <div class="cards-container-header">
+                        ${this.hass.localize(
+                          `ui.panel.config.lovelace.dashboards.dialog_new.heading.default`
+                        )}
+                      </div>
+                      ${this._localizedStrategies.map(
+                        (strategy) => html`
+                          <dashboard-card
+                            .name=${strategy.localizedName}
+                            .description=${strategy.localizedDescription}
+                            .img=${
+                              this.hass.themes.darkMode
+                                ? strategy.images.dark
+                                : strategy.images.light
+                            }
+                            .alt=${strategy.localizedName}
+                            @click=${this._selected}
+                            .strategy=${strategy.type}
+                          ></dashboard-card>
+                        `
+                      )}
+                    </div>
+                    ${
+                      this._customStrategies.length > 0
+                        ? html`
+                            <div class="cards-container">
+                              <div class="cards-container-header">
+                                ${this.hass.localize(
+                                  `ui.panel.config.lovelace.dashboards.dialog_new.heading.custom`
+                                )}
+                              </div>
+                              ${this._customStrategies.map(
+                                (strategy) => html`
+                                  <dashboard-card
+                                    .name=${strategy.name || strategy.type}
+                                    .description=${strategy.description || ""}
+                                    @click=${this._selected}
+                                    .strategy=${CUSTOM_TYPE_PREFIX + strategy.type}
+                                  ></dashboard-card>
+                                `
+                              )}
+                            </div>
+                          `
+                        : nothing
+                    }
+                  `
+            }
           </div>
         </div>
       </ha-dialog>
     `;
   }
 
-  private _handleSearchChange(ev: InputEvent) {
-    this._filter = (ev.target as HaInputSearch).value ?? "";
+  private _handleSearchChange(ev: HASSDomTargetEvent<HaInputSearch>) {
+    this._filter = ev.target.value ?? "";
   }
 
   private _filterStrategies = memoizeOne(

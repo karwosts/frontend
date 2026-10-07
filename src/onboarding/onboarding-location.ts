@@ -4,10 +4,11 @@ import {
   mdiMapMarker,
   mdiMapSearchOutline,
 } from "@mdi/js";
-import type { CSSResultGroup, TemplateResult, PropertyValues } from "lit";
+import type { CSSResultGroup, PropertyValues, TemplateResult } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
+import { consumeLocalize } from "../common/decorators/consume-context-entry";
 import { fireEvent } from "../common/dom/fire_event";
 import type { LocalizeFunc } from "../common/translations/localize";
 import "../components/ha-alert";
@@ -38,7 +39,9 @@ const LOCATION_MARKER_ID = "location";
 class OnboardingLocation extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
 
-  @property({ attribute: false }) public onboardingLocalize!: LocalizeFunc;
+  @state()
+  @consumeLocalize()
+  private _localize!: LocalizeFunc;
 
   @state() private _working = false;
 
@@ -67,7 +70,7 @@ class OnboardingLocation extends LitElement {
   @query("ha-input") private _input?: HTMLElement;
 
   protected render(): TemplateResult {
-    const addressAttribution = this.onboardingLocalize(
+    const addressAttribution = this._localize(
       "ui.panel.page-onboarding.core-config.location_address",
       {
         openstreetmap: html`<a
@@ -80,7 +83,7 @@ class OnboardingLocation extends LitElement {
           href="https://wiki.osmfoundation.org/wiki/Privacy_Policy"
           target="_blank"
           rel="noopener noreferrer"
-          >${this.onboardingLocalize(
+          >${this._localize(
             "ui.panel.page-onboarding.core-config.osm_privacy_policy"
           )}</a
         >`,
@@ -89,94 +92,99 @@ class OnboardingLocation extends LitElement {
 
     return html`
       <h1>
-        ${this.onboardingLocalize(
+        ${this._localize(
           "ui.panel.page-onboarding.core-config.location_header"
         )}
       </h1>
-      ${this._error
-        ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
-        : nothing}
+      ${
+        this._error
+          ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
+          : nothing
+      }
 
       <p>
-        ${this.onboardingLocalize(
-          "ui.panel.page-onboarding.core-config.intro_location"
-        )}
+        ${this._localize("ui.panel.page-onboarding.core-config.intro_location")}
       </p>
 
       <div class="location-search">
         <ha-input
-          label=${this.onboardingLocalize(
+          label=${this._localize(
             "ui.panel.page-onboarding.core-config.address_label"
           )}
           .disabled=${this._working}
           @keyup=${this._addressSearch}
         >
           <ha-svg-icon slot="start" .path=${mdiMagnify}></ha-svg-icon>
-          ${this._working
-            ? html`<ha-spinner slot="end" size="small"></ha-spinner>`
-            : html`
-                <ha-icon-button
-                  @click=${this._handleButtonClick}
-                  slot="end"
-                  .disabled=${this._working}
-                  .label=${this.onboardingLocalize(
-                    this._search
-                      ? "ui.common.search"
-                      : "ui.panel.page-onboarding.core-config.button_detect"
-                  )}
-                  .path=${this._search ? mdiMapSearchOutline : mdiCrosshairsGps}
-                ></ha-icon-button>
-              `}
+          ${
+            this._working
+              ? html`<ha-spinner slot="end" size="small"></ha-spinner>`
+              : html`
+                  <ha-icon-button
+                    @click=${this._handleButtonClick}
+                    slot="end"
+                    .disabled=${this._working}
+                    .label=${this._localize(
+                      this._search
+                        ? "ui.common.search"
+                        : "ui.panel.page-onboarding.core-config.button_detect"
+                    )}
+                    .path=${this._search ? mdiMapSearchOutline : mdiCrosshairsGps}
+                  ></ha-icon-button>
+                `
+          }
         </ha-input>
-        ${this._places !== undefined
-          ? html`
-              <ha-list activatable>
-                ${this._places?.length
-                  ? this._places.map((place) => {
-                      const primary = [
-                        place.name || place.address[place.category],
-                        place.address.house_number,
-                        place.address.road || place.address.waterway,
-                        place.address.village || place.address.town,
-                        place.address.suburb || place.address.subdivision,
-                        place.address.city || place.address.municipality,
-                      ]
-                        .filter(Boolean)
-                        .join(", ");
-                      const secondary = [
-                        place.address.county ||
-                          place.address.state_district ||
-                          place.address.region,
-                        place.address.state,
-                        place.address.country,
-                      ]
-                        .filter(Boolean)
-                        .join(", ");
-                      return html`<ha-list-item
-                        @click=${this._itemClicked}
-                        .placeId=${place.place_id}
-                        .selected=${this._highlightedMarker === place.place_id}
-                        .activated=${this._highlightedMarker === place.place_id}
-                        .twoline=${primary && secondary}
-                      >
-                        ${primary || secondary}
-                        <span slot="secondary"
-                          >${primary ? secondary : ""}</span
-                        >
-                      </ha-list-item>`;
-                    })
-                  : html`<ha-list-item noninteractive
-                      >${this._places === null
-                        ? ""
-                        : "No results"}</ha-list-item
-                    >`}
-              </ha-list>
-            `
-          : nothing}
+        ${
+          this._places !== undefined
+            ? html`
+                <ha-list activatable>
+                  ${
+                    this._places?.length
+                      ? this._places.map((place) => {
+                          const primary = [
+                            place.name || place.address[place.category],
+                            place.address.house_number,
+                            place.address.road || place.address.waterway,
+                            place.address.village || place.address.town,
+                            place.address.suburb || place.address.subdivision,
+                            place.address.city || place.address.municipality,
+                          ]
+                            .filter(Boolean)
+                            .join(", ");
+                          const secondary = [
+                            place.address.county ||
+                              place.address.state_district ||
+                              place.address.region,
+                            place.address.state,
+                            place.address.country,
+                          ]
+                            .filter(Boolean)
+                            .join(", ");
+                          return html`<ha-list-item
+                            @click=${this._itemClicked}
+                            .placeId=${place.place_id}
+                            .selected=${this._highlightedMarker === place.place_id}
+                            .activated=${this._highlightedMarker === place.place_id}
+                            .twoline=${primary && secondary}
+                          >
+                            ${primary || secondary}
+                            <span slot="secondary"
+                              >${primary ? secondary : ""}</span
+                            >
+                          </ha-list-item>`;
+                        })
+                      : html`<ha-list-item noninteractive
+                          >${
+                            this._places === null ? "" : "No results"
+                          }</ha-list-item
+                        >`
+                  }
+                </ha-list>
+              `
+            : nothing
+        }
       </div>
       <ha-locations-editor
         class="flex"
-        .hass=${this.hass}
         .locations=${this._markerLocations(
           this._location,
           this._places,
@@ -193,9 +201,7 @@ class OnboardingLocation extends LitElement {
 
       <div class="footer">
         <ha-button @click=${this._save} .disabled=${this._working}>
-          ${this.onboardingLocalize(
-            "ui.panel.page-onboarding.core-config.finish"
-          )}
+          ${this._localize("ui.panel.page-onboarding.core-config.finish")}
         </ha-button>
       </div>
     `;
@@ -260,6 +266,7 @@ class OnboardingLocation extends LitElement {
                 ? location[1]
                 : Number(place.lon),
             location_editable: place.place_id === highlightedMarker,
+            clickable: true,
           }))
         : [];
     }
@@ -400,10 +407,10 @@ class OnboardingLocation extends LitElement {
 
   private async _whoAmI() {
     const confirm = await showConfirmationDialog(this, {
-      title: this.onboardingLocalize(
+      title: this._localize(
         "ui.panel.page-onboarding.core-config.title_location_detect"
       ),
-      text: this.onboardingLocalize(
+      text: this._localize(
         "ui.panel.page-onboarding.core-config.intro_location_detect"
       ),
     });

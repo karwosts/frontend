@@ -13,17 +13,13 @@ export const STREAM_TYPE_WEB_RTC = "web_rtc";
 
 export type StreamType = typeof STREAM_TYPE_HLS | typeof STREAM_TYPE_WEB_RTC;
 
-export enum CameraEntityFeature {
-  ON_OFF = 1,
-  STREAM = 2,
-}
+export { CameraEntityFeature } from "./feature/camera_entity_feature";
 
 interface CameraEntityAttributes extends HassEntityAttributeBase {
-  model_name: string;
+  model_name?: string;
   access_token?: string;
-  brand: string;
-  motion_detection: boolean;
-  frontend_stream_type: string;
+  brand?: string;
+  motion_detection?: boolean;
 }
 
 export interface CameraEntity extends HassEntityBase {
@@ -45,10 +41,7 @@ export interface Stream {
 }
 
 export type WebRtcOfferEvent =
-  | WebRtcId
-  | WebRtcAnswer
-  | WebRtcCandidate
-  | WebRtcError;
+  WebRtcId | WebRtcAnswer | WebRtcCandidate | WebRtcError;
 
 export interface WebRtcId {
   type: "session";

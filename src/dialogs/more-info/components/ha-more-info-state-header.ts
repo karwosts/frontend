@@ -1,7 +1,7 @@
-import { consume } from "@lit/context";
 import type { TemplateResult } from "lit";
 import { css, html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import "../../../components/ha-absolute-time";
 import "../../../components/ha-relative-time";
 import type { HomeAssistantFormatters } from "../../../types";
@@ -54,20 +54,24 @@ export class HaMoreInfoStateHeader extends LitElement {
       <p class="state">${stateDisplay}</p>
       <div class="time-row">
         <p class="last-changed" @click=${this._toggleAbsolute}>
-          ${this._absoluteTime
-            ? html`
-                <ha-absolute-time
-                  .datetime=${this.changedOverride ??
-                  this.stateObj.last_changed}
-                ></ha-absolute-time>
-              `
-            : html`
-                <ha-relative-time
-                  .datetime=${this.changedOverride ??
-                  this.stateObj.last_changed}
-                  capitalize
-                ></ha-relative-time>
-              `}
+          ${
+            this._absoluteTime
+              ? html`
+                  <ha-absolute-time
+                    .datetime=${
+                      this.changedOverride ?? this.stateObj.last_changed
+                    }
+                  ></ha-absolute-time>
+                `
+              : html`
+                  <ha-relative-time
+                    .datetime=${
+                      this.changedOverride ?? this.stateObj.last_changed
+                    }
+                    capitalize
+                  ></ha-relative-time>
+                `
+          }
         </p>
         <slot name="after-time"></slot>
       </div>
@@ -107,7 +111,6 @@ export class HaMoreInfoStateHeader extends LitElement {
       padding: var(--ha-space-1) 0;
       cursor: pointer;
       user-select: none;
-      -webkit-user-select: none;
       -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
     }
   `;

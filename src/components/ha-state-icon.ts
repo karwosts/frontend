@@ -1,14 +1,17 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import { initialState } from "@lit/task";
 import type { HassEntity } from "home-assistant-js-websocket";
+import type { PropertyValues } from "lit";
 import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../common/decorators/consume";
 import { AsyncValueTask } from "../common/controllers/async-value-task";
 import { computeStateDomain } from "../common/entity/compute_state_domain";
 import {
   configContext,
   connectionContext,
   entitiesContext,
+  formattersContext,
 } from "../data/context";
 import {
   DEFAULT_DOMAIN_ICON,
@@ -22,7 +25,14 @@ import "./ha-svg-icon";
 export class HaStateIcon extends LitElement {
   @property({ attribute: false }) public stateObj?: HassEntity;
 
+  @state()
+  @consume({ context: formattersContext, subscribe: true })
+  private _formatters!: ContextType<typeof formattersContext>;
+
   @property({ attribute: false }) public stateValue?: string;
+
+  @property({ attribute: "state-title", type: Boolean }) public stateTitle =
+    false;
 
   @property() public icon?: string;
 
@@ -76,6 +86,18 @@ export class HaStateIcon extends LitElement {
         this.stateValue,
       ] as const,
   });
+
+  protected willUpdate(changedProps: PropertyValues) {
+    if (
+      changedProps.has("stateObj") ||
+      changedProps.has("_formatters") ||
+      changedProps.has("stateTitle")
+    ) {
+      if (this.stateTitle && this.stateObj) {
+        this.title = this._formatters.formatEntityState(this.stateObj);
+      }
+    }
+  }
 
   protected render() {
     const overrideIcon = this._overrideIcon;

@@ -166,12 +166,10 @@ export const getZwaveDeviceActions = async (
     }
   }
 
-  if (
-    !(
-      nodeStatus.ready &&
-      (nodeStatus.is_controller_node || nodeStatus.has_firmware_update_cc)
-    )
-  ) {
+  if (!(
+    nodeStatus.ready &&
+    (nodeStatus.is_controller_node || nodeStatus.has_firmware_update_cc)
+  )) {
     return actions;
   }
 
@@ -219,7 +217,8 @@ export const getZwaveDeviceActions = async (
       action: async () => {
         showZWaveJSAddNodeDialog(el, {
           entry_id: entryId,
-          longRangeSupported: networkStatus.controller?.supports_long_range,
+          longRangeSupported:
+            networkStatus.controller?.supports_long_range ?? undefined,
         });
       },
     });

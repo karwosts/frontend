@@ -1,8 +1,8 @@
-import { consume } from "@lit/context";
 import { mdiContentSave } from "@mdi/js";
 import type { HassEntity } from "home-assistant-js-websocket";
 import { css, html, nothing, type CSSResultGroup } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import { fireEvent } from "../../../common/dom/fire_event";
 import "../../../components/ha-alert";
 import "../../../components/ha-button";
@@ -34,32 +34,37 @@ export class HaBlueprintAutomationEditor extends HaBlueprintGenericEditor {
 
   protected render() {
     return html`
-      ${this.stateObj?.state === "off"
-        ? html`
-            <ha-alert alert-type="info">
-              ${this.hass.localize(
-                "ui.panel.config.automation.editor.disabled"
-              )}
-              <ha-button
-                appearance="plain"
-                size="s"
-                slot="action"
-                @click=${this._enable}
-              >
+      <slot name="alerts"></slot>
+      ${
+        this.stateObj?.state === "off"
+          ? html`
+              <ha-alert alert-type="info">
                 ${this.hass.localize(
-                  "ui.panel.config.automation.editor.enable"
+                  "ui.panel.config.automation.editor.disabled"
                 )}
-              </ha-button>
-            </ha-alert>
-          `
-        : ""}
-      ${this.config.description
-        ? html`<ha-markdown
-            class="description"
-            breaks
-            .content=${this.config.description}
-          ></ha-markdown>`
-        : nothing}
+                <ha-button
+                  appearance="plain"
+                  size="s"
+                  slot="action"
+                  @click=${this._enable}
+                >
+                  ${this.hass.localize(
+                    "ui.panel.config.automation.editor.enable"
+                  )}
+                </ha-button>
+              </ha-alert>
+            `
+          : ""
+      }
+      ${
+        this.config.description
+          ? html`<ha-markdown
+              class="description"
+              breaks
+              .content=${this.config.description}
+            ></ha-markdown>`
+          : nothing
+      }
       ${this.renderCard()}
 
       <ha-button

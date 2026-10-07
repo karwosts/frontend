@@ -1,9 +1,8 @@
-import { consume } from "@lit/context";
 import type { HassEntity } from "home-assistant-js-websocket";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
+import { consume } from "../../../common/decorators/consume";
 import { transform } from "../../../common/decorators/transform";
-import "../../../components/ha-date-input";
 import "../../../components/ha-time-input";
 import { apiContext, internationalizationContext } from "../../../data/context";
 import { UNAVAILABLE, UNKNOWN } from "../../../data/entity/entity";
@@ -37,9 +36,9 @@ class MoreInfoTime extends LitElement {
 
     return html`
       <ha-time-input
-        .value=${this.stateObj.state === UNKNOWN
-          ? undefined
-          : this.stateObj.state}
+        .value=${
+          this.stateObj.state === UNKNOWN ? undefined : this.stateObj.state
+        }
         .locale=${this._locale}
         @value-changed=${this._timeChanged}
         @click=${this._stopEventPropagation}

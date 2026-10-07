@@ -132,12 +132,13 @@ describe("getStates", () => {
         expect.arrayContaining([
           "battery",
           "battery_charging",
-          "co",
+          "carbon_monoxide",
           "cold",
           "connectivity",
           "door",
           "garage_door",
           "gas",
+          "glass_break",
           "heat",
           "light",
           "lock",
@@ -160,7 +161,7 @@ describe("getStates", () => {
           "window",
         ])
       );
-      expect(result.length).toBe(28);
+      expect(result.length).toBe(29);
     });
 
     it("should return media player device classes", () => {

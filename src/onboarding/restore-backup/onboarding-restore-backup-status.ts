@@ -1,5 +1,6 @@
 import { css, html, LitElement, nothing, type CSSResultGroup } from "lit";
-import { customElement, property } from "lit/decorators";
+import { customElement, property, state } from "lit/decorators";
+import { consumeLocalize } from "../../common/decorators/consume-context-entry";
 import { fireEvent } from "../../common/dom/fire_event";
 import type { LocalizeFunc } from "../../common/translations/localize";
 import "../../components/ha-alert";
@@ -10,7 +11,9 @@ import { onBoardingStyles } from "../styles";
 
 @customElement("onboarding-restore-backup-status")
 class OnboardingRestoreBackupStatus extends LitElement {
-  @property({ attribute: false }) public localize!: LocalizeFunc;
+  @state()
+  @consumeLocalize()
+  private _localize!: LocalizeFunc;
 
   @property({ attribute: false })
   public backupInfo!: BackupOnboardingInfo;
@@ -18,47 +21,55 @@ class OnboardingRestoreBackupStatus extends LitElement {
   render() {
     return html`
       <h1>
-        ${this.localize(
+        ${this._localize(
           `ui.panel.page-onboarding.restore.${this.backupInfo.state === "restore_backup" ? "in_progress" : "failed"}`
         )}
       </h1>
-      ${this.backupInfo.state === "restore_backup"
-        ? html` <p>
-            ${this.localize(
-              `ui.panel.page-onboarding.restore.in_progress_description`
-            )}
-          </p>`
-        : nothing}
+      ${
+        this.backupInfo.state === "restore_backup"
+          ? html`<p>
+              ${this._localize(
+                `ui.panel.page-onboarding.restore.in_progress_description`
+              )}
+            </p>`
+          : nothing
+      }
       <div class="card-content">
-        ${this.backupInfo.state === "restore_backup"
-          ? html`
-              <div class="loading">
-                <ha-progress-bar indeterminate></ha-progress-bar>
-              </div>
-            `
-          : html`
-              <ha-alert alert-type="error">
-                ${this.localize(
-                  "ui.panel.page-onboarding.restore.failed_status_description"
-                )}
-              </ha-alert>
-              ${this.backupInfo.last_action_event?.reason
-                ? html`
-                    <div class="failed">
-                      <h4>Error:</h4>
-                      ${this.backupInfo.last_action_event?.reason}
-                    </div>
-                  `
-                : nothing}
-            `}
+        ${
+          this.backupInfo.state === "restore_backup"
+            ? html`
+                <div class="loading">
+                  <ha-progress-bar indeterminate></ha-progress-bar>
+                </div>
+              `
+            : html`
+                <ha-alert alert-type="error">
+                  ${this._localize(
+                    "ui.panel.page-onboarding.restore.failed_status_description"
+                  )}
+                </ha-alert>
+                ${
+                  this.backupInfo.last_action_event?.reason
+                    ? html`
+                        <div class="failed">
+                          <h4>Error:</h4>
+                          ${this.backupInfo.last_action_event?.reason}
+                        </div>
+                      `
+                    : nothing
+                }
+              `
+        }
       </div>
-      ${this.backupInfo.state !== "restore_backup"
-        ? html`<div class="actions">
-            <ha-button @click=${this._back}>
-              ${this.localize("ui.panel.page-onboarding.restore.back")}
-            </ha-button>
-          </div>`
-        : nothing}
+      ${
+        this.backupInfo.state !== "restore_backup"
+          ? html`<div class="actions">
+              <ha-button @click=${this._back}>
+                ${this._localize("ui.panel.page-onboarding.restore.back")}
+              </ha-button>
+            </div>`
+          : nothing
+      }
     `;
   }
 

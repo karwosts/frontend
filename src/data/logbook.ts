@@ -1,9 +1,11 @@
 import type { HassEntity, UnsubscribeFunc } from "home-assistant-js-websocket";
 import { DOMAINS_WITH_DYNAMIC_PICTURE } from "../common/const";
+import type { TimestampStateDomain } from "../common/const";
 import { computeDomain } from "../common/entity/compute_domain";
 import { computeStateDomain } from "../common/entity/compute_state_domain";
 import type { LocalizeFunc } from "../common/translations/localize";
 import type { HomeAssistant } from "../types";
+import { UNAVAILABLE, UNKNOWN } from "./entity/entity";
 import { isNumericEntity } from "./history";
 
 const LOGBOOK_LOCALIZE_PATH = "ui.components.logbook.messages";
@@ -19,13 +21,14 @@ export interface LogbookStreamMessage {
 export interface LogbookEntry {
   // Base data
   when: number; // Python timestamp. Do *1000 to get JS timestamp.
-  name: string;
+  name?: string; // Only sent when the backend resolves entity names
   message?: string;
   entity_id?: string;
   icon?: string;
   source?: string; // The trigger source (English phrase, parsed for the cause)
   domain?: string;
   state?: string; // The state of the entity
+  attributes?: { event_type?: string }; // Selected attributes the backend surfaces
   // Context data
   context_id?: string;
   context_user_id?: string;
@@ -74,7 +77,7 @@ export const getLogbookDataForContext = async (
 ): Promise<LogbookEntry[]> =>
   getLogbookDataFromServer(hass, startDate, undefined, undefined, contextId);
 
-const getLogbookDataFromServer = (
+export const getLogbookDataFromServer = (
   hass: HomeAssistant,
   startDate: string,
   endDate?: string,
@@ -143,7 +146,10 @@ export const subscribeLogbook = (
   }
   return hass.connection.subscribeMessage<LogbookStreamMessage>(
     (message) => callbackFunction(message, subscriptionId),
-    params
+    params,
+    // Don't auto-resubscribe: the replay uses a stale start_time and ha-logbook
+    // appends events without deduping, so it resubscribes on `ready` instead.
+    { resubscribe: false }
   );
 };
 
@@ -239,16 +245,75 @@ export const parseTriggerSource = (source: string): ParsedTriggerSource => {
   return {};
 };
 
+// Short label shown instead of the bare timestamp for each timestamp-state
+// domain. Typed to TIMESTAMP_STATE_DOMAINS minus datetime (a real value) and
+// event (handled separately via its event type), so a new timestamp domain
+// won't compile until it gets a label here.
+type LogbookActionMessage =
+  | "pressed"
+  | "activated"
+  | "scanned"
+  | "updated"
+  | "sent"
+  | "detected"
+  | "transcribed"
+  | "spoke"
+  | "responded"
+  | "ran"
+  | "command_sent";
+
+const STATE_ACTION_MESSAGES: Record<
+  Exclude<TimestampStateDomain, "datetime" | "event">,
+  LogbookActionMessage
+> = {
+  button: "pressed",
+  input_button: "pressed",
+  scene: "activated",
+  tag: "scanned",
+  image: "updated",
+  notify: "sent",
+  wake_word: "detected",
+  stt: "transcribed",
+  tts: "spoke",
+  conversation: "responded",
+  ai_task: "ran",
+  infrared: "command_sent",
+  radio_frequency: "command_sent",
+};
+
+const RESTORABLE_BUTTON_DOMAINS = new Set(["button", "input_button"]);
+
 export const localizeStateMessage = (
   hass: HomeAssistant,
   state: string,
   stateObj: HassEntity,
-  domain: string
+  domain: string,
+  entry?: LogbookEntry
 ): string => {
-  // Events expose a timestamp as their state, which has no meaningful display
-  // value, so keep a dedicated phrase.
+  if (state === UNKNOWN || state === UNAVAILABLE) {
+    return hass.formatEntityState(stateObj, state);
+  }
+  // Events show the triggered event type, falling back to a generic label when
+  // the type is unknown (the timestamp state is meaningless on its own).
   if (domain === "event") {
+    const eventType = entry?.attributes?.event_type;
+    if (eventType != null) {
+      return hass.formatEntityAttributeValue(stateObj, "event_type", eventType);
+    }
     return hass.localize(`${LOGBOOK_LOCALIZE_PATH}.detected_event_no_type`);
+  }
+  const actionKey: LogbookActionMessage | undefined =
+    STATE_ACTION_MESSAGES[domain as keyof typeof STATE_ACTION_MESSAGES];
+  const stateTimestamp = Date.parse(state);
+  const matchesEntryTime =
+    entry === undefined ||
+    (Number.isFinite(stateTimestamp) &&
+      Math.abs(stateTimestamp - entry.when * 1000) < 1000);
+  if (
+    actionKey &&
+    (!RESTORABLE_BUTTON_DOMAINS.has(domain) || matchesEntryTime)
+  ) {
+    return hass.localize(`${LOGBOOK_LOCALIZE_PATH}.${actionKey}`);
   }
   // Every other domain reuses the backend state translation, so the logbook
   // speaks the same vocabulary as the rest of the UI.

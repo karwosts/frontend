@@ -1,9 +1,10 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import { mdiInvertColorsOff, mdiPalette } from "@mdi/js";
 import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { styleMap } from "lit/directives/style-map";
 import memoizeOne from "memoize-one";
+import { consume } from "../common/decorators/consume";
 import { computeCssColor, THEME_COLORS } from "../common/color/compute-color";
 import { fireEvent } from "../common/dom/fire_event";
 import type { LocalizeKeys } from "../common/translations/localize";
@@ -214,12 +215,14 @@ export class HaColorPicker extends LitElement {
     item: PickerComboBoxItem,
     index?: number
   ) => ReturnType<typeof html> = (item) => html`
-    <ha-combo-box-item type="button" compact>
+    <ha-combo-box-item>
       ${this._renderItemIcon(item)}
       <span slot="headline">${item.primary}</span>
-      ${item.secondary
-        ? html`<span slot="supporting-text">${item.secondary}</span>`
-        : nothing}
+      ${
+        item.secondary
+          ? html`<span slot="supporting-text">${item.secondary}</span>`
+          : nothing
+      }
     </ha-combo-box-item>
   `;
 
@@ -236,8 +239,10 @@ export class HaColorPicker extends LitElement {
       return html`
         <ha-svg-icon slot="start" .path=${mdiPalette}></ha-svg-icon>
         <span slot="headline">
-          ${this._i18n?.localize?.("ui.components.color-picker.state") ||
-          "State"}
+          ${
+            this._i18n?.localize?.("ui.components.color-picker.state") ||
+            "State"
+          }
         </span>
       `;
     }

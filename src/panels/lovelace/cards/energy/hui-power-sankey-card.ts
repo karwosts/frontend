@@ -1,36 +1,51 @@
-import type { UnsubscribeFunc } from "home-assistant-js-websocket";
-import type { PropertyValues } from "lit";
+import type { HassConfig, HassEntities } from "home-assistant-js-websocket";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
+import { consume } from "../../../../common/decorators/consume";
+import { preserveUnchangedEntityStatesRecord } from "../../../../common/decorators/consume-context-entry";
+import { transform } from "../../../../common/decorators/transform";
 import "../../../../components/ha-card";
 import "../../../../components/ha-svg-icon";
-import { fireEvent } from "../../../../common/dom/fire_event";
+import {
+  configContext,
+  formattersContext,
+  internationalizationContext,
+  registriesContext,
+  statesContext,
+} from "../../../../data/context";
 import type { EnergyData, EnergyPreferences } from "../../../../data/energy";
 import {
+  computeEnergyDeviceLabels,
   formatPowerShort,
-  getEnergyDataCollection,
   getPowerFromState,
   validateEnergyCollectionKey,
 } from "../../../../data/energy";
-import { SubscribeMixin } from "../../../../mixins/subscribe-mixin";
-import type { HomeAssistant } from "../../../../types";
+import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
+import type {
+  HomeAssistant,
+  HomeAssistantConfig,
+  HomeAssistantFormatters,
+  HomeAssistantInternationalization,
+  HomeAssistantRegistries,
+} from "../../../../types";
 import type { LovelaceCard, LovelaceGridOptions } from "../../types";
 import type { PowerSankeyCardConfig } from "../types";
 import "../../../../components/chart/ha-sankey-chart";
 import type { Link, Node } from "../../../../components/chart/ha-sankey-chart";
-import { getGraphColorByIndex } from "../../../../common/color/colors";
-import { getEntityContext } from "../../../../common/entity/context/get_entity_context";
 import { MobileAwareMixin } from "../../../../mixins/mobile-aware-mixin";
+import {
+  buildSankeyDeviceNodes,
+  buildSankeyLayout,
+  DEFAULT_MAX_SANKEY_DEVICES,
+  fireSankeyNodeMoreInfo,
+  MIN_SANKEY_THRESHOLD_FACTOR,
+} from "./common/sankey";
 
 const DEFAULT_CONFIG: Partial<PowerSankeyCardConfig> = {
   group_by_floor: true,
   group_by_area: true,
 };
-
-// Minimum power threshold as a fraction of total consumption to display a device node
-// Devices below this threshold will be grouped into an "Other" node
-const MIN_POWER_THRESHOLD_FACTOR = 0.001; // 0.1% of used_total
 
 interface PowerData {
   solar: number;
@@ -48,25 +63,15 @@ interface PowerData {
   used_total: number;
 }
 
-interface SmallConsumer {
-  statRate: string;
-  name: string | undefined;
-  value: number;
-  effectiveParent: string | undefined;
-  idx: number;
-}
-
 @customElement("hui-power-sankey-card")
 class HuiPowerSankeyCard
-  extends SubscribeMixin(MobileAwareMixin(LitElement))
+  extends MobileAwareMixin(LitElement)
   implements LovelaceCard
 {
   public static async getConfigElement() {
     await import("../../editor/config-elements/hui-energy-sankey-card-editor");
     return document.createElement("hui-energy-sankey-card-editor");
   }
-
-  @property({ attribute: false }) public hass!: HomeAssistant;
 
   @property({ attribute: false }) public layout?: string;
 
@@ -86,25 +91,72 @@ class HuiPowerSankeyCard
 
   @state() private _data?: EnergyData;
 
-  private _entities = new Set<string>();
+  @state()
+  @consume({ context: statesContext, subscribe: true })
+  @transform<HassEntities, HassEntities>({
+    transformer: function (this: HuiPowerSankeyCard, states) {
+      const tracked: HassEntities = {};
+      const prefs = this._data?.prefs;
+      if (states && prefs) {
+        [
+          ...prefs.energy_sources.map((source) =>
+            source.type === "gas" || source.type === "water"
+              ? undefined
+              : source.stat_rate
+          ),
+          ...prefs.device_consumption.map((device) => device.stat_rate),
+        ].forEach((entityId) => {
+          if (entityId && states[entityId]) {
+            tracked[entityId] = states[entityId];
+          }
+        });
+      }
+      return preserveUnchangedEntityStatesRecord(this._states, tracked);
+    },
+    watch: ["_data"],
+  })
+  private _states: HassEntities = {};
 
-  protected hassSubscribeRequiredHostProps = ["_config"];
+  @state()
+  @consume({ context: internationalizationContext, subscribe: true })
+  private _i18n!: HomeAssistantInternationalization;
+
+  @state()
+  @consume({ context: configContext, subscribe: true })
+  @transform<HomeAssistantConfig, HassConfig>({
+    transformer: ({ config }) => config,
+  })
+  private _hassConfig!: HassConfig;
+
+  @state()
+  @consume({ context: formattersContext, subscribe: true })
+  @transform<
+    HomeAssistantFormatters,
+    HomeAssistantFormatters["formatEntityName"]
+  >({
+    transformer: ({ formatEntityName }) => formatEntityName,
+  })
+  private _formatEntityName!: HomeAssistantFormatters["formatEntityName"];
+
+  @state()
+  @consume({ context: registriesContext, subscribe: true })
+  private _registries!: HomeAssistantRegistries;
+
+  constructor() {
+    super();
+    new EnergyCollectionController(this, {
+      config: () => this._config,
+      onData: (data) => {
+        this._data = data;
+      },
+    });
+  }
 
   public setConfig(config: PowerSankeyCardConfig): void {
     if (config.collection_key) {
       validateEnergyCollectionKey(config.collection_key);
     }
     this._config = { ...DEFAULT_CONFIG, ...config };
-  }
-
-  public hassSubscribe(): UnsubscribeFunc[] {
-    return [
-      getEnergyDataCollection(this.hass, {
-        key: this._config?.collection_key,
-      }).subscribe((data) => {
-        this._data = data;
-      }),
-    ];
   }
 
   public getCardSize(): Promise<number> | number {
@@ -120,42 +172,13 @@ class HuiPowerSankeyCard
     };
   }
 
-  protected shouldUpdate(changedProps: PropertyValues): boolean {
-    if (
-      changedProps.has("_config") ||
-      changedProps.has("_data") ||
-      changedProps.has("_isMobileSize")
-    ) {
-      return true;
-    }
-
-    // Check if any of the tracked entity states have changed
-    if (changedProps.has("hass")) {
-      const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
-      if (!oldHass || !this._entities.size) {
-        return true;
-      }
-
-      // Only update if one of our tracked entities changed
-      for (const entityId of this._entities) {
-        if (oldHass.states[entityId] !== this.hass.states[entityId]) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
   protected render() {
     if (!this._config) {
       return nothing;
     }
 
     if (!this._data) {
-      return html`${this.hass.localize(
-        "ui.panel.lovelace.cards.energy.loading"
-      )}`;
+      return html`${this._i18n.localize("ui.panel.lovelace.cards.energy.loading")}`;
     }
 
     const prefs = this._data.prefs;
@@ -163,7 +186,8 @@ class HuiPowerSankeyCard
     const computedStyle = getComputedStyle(this);
 
     // Calculate dynamic threshold based on total consumption
-    const minPowerThreshold = powerData.used_total * MIN_POWER_THRESHOLD_FACTOR;
+    const minPowerThreshold =
+      powerData.used_total * MIN_SANKEY_THRESHOLD_FACTOR;
 
     const nodes: Node[] = [];
     const links: Link[] = [];
@@ -171,7 +195,7 @@ class HuiPowerSankeyCard
     // Create home node
     const homeNode: Node = {
       id: "home",
-      label: this.hass.config.location_name,
+      label: this._hassConfig.location_name,
       value: Math.max(0, powerData.used_total),
       color: computedStyle.getPropertyValue("--primary-color").trim(),
       index: 1,
@@ -182,7 +206,7 @@ class HuiPowerSankeyCard
     if (powerData.from_battery > 0) {
       nodes.push({
         id: "battery",
-        label: this.hass.localize(
+        label: this._i18n.localize(
           "ui.panel.lovelace.cards.energy.energy_distribution.battery"
         ),
         value: powerData.from_battery,
@@ -200,7 +224,7 @@ class HuiPowerSankeyCard
     if (powerData.to_battery > 0) {
       nodes.push({
         id: "battery_in",
-        label: this.hass.localize(
+        label: this._i18n.localize(
           "ui.panel.lovelace.cards.energy.energy_distribution.battery"
         ),
         value: powerData.to_battery,
@@ -227,7 +251,7 @@ class HuiPowerSankeyCard
     if (powerData.from_grid > 0) {
       nodes.push({
         id: "grid",
-        label: this.hass.localize(
+        label: this._i18n.localize(
           "ui.panel.lovelace.cards.energy.energy_distribution.grid"
         ),
         value: powerData.from_grid,
@@ -246,7 +270,7 @@ class HuiPowerSankeyCard
     if (powerData.solar > 0) {
       nodes.push({
         id: "solar",
-        label: this.hass.localize(
+        label: this._i18n.localize(
           "ui.panel.lovelace.cards.energy.energy_distribution.solar"
         ),
         value: powerData.solar,
@@ -263,7 +287,7 @@ class HuiPowerSankeyCard
     if (powerData.to_grid > 0) {
       nodes.push({
         id: "grid_return",
-        label: this.hass.localize(
+        label: this._i18n.localize(
           "ui.panel.lovelace.cards.energy.energy_distribution.grid"
         ),
         value: powerData.to_grid,
@@ -286,266 +310,52 @@ class HuiPowerSankeyCard
       }
     }
 
-    let untrackedConsumption = homeNode.value;
-    const deviceNodes: Node[] = [];
-    const parentLinks: Record<string, string> = {};
-
-    // Build a map of device relationships for hierarchy resolution
-    // Key: stat_consumption (energy), Value: { stat_rate, included_in_stat }
-    const deviceMap = new Map<
-      string,
-      { stat_rate?: string; included_in_stat?: string }
-    >();
-    prefs.device_consumption.forEach((device) => {
-      deviceMap.set(device.stat_consumption, {
-        stat_rate: device.stat_rate,
-        included_in_stat: device.included_in_stat,
-      });
-    });
-
-    // Set of stat_rate entities that will be rendered as nodes
-    const renderedStatRates = new Set<string>();
-    prefs.device_consumption.forEach((device) => {
-      if (device.stat_rate) {
-        const value = this._getCurrentPower(device.stat_rate);
-        if (value >= minPowerThreshold) {
-          renderedStatRates.add(device.stat_rate);
-        }
-      }
-    });
-
-    // Find the effective parent for power hierarchy
-    // Walks up the chain to find an ancestor with stat_rate that will be rendered
-    const findEffectiveParent = (
-      includedInStat: string | undefined
-    ): string | undefined => {
-      let currentParent = includedInStat;
-      while (currentParent) {
-        const parentDevice = deviceMap.get(currentParent);
-        if (!parentDevice) {
-          return undefined;
-        }
-        // If this parent has a stat_rate and will be rendered, use it
-        if (
-          parentDevice.stat_rate &&
-          renderedStatRates.has(parentDevice.stat_rate)
-        ) {
-          return parentDevice.stat_rate;
-        }
-        // Otherwise, continue up the chain
-        currentParent = parentDevice.included_in_stat;
-      }
-      return undefined;
-    };
-
-    // Collect small consumers by their effective parent
-    const smallConsumersByParent = new Map<string, SmallConsumer[]>();
-
-    prefs.device_consumption.forEach((device, idx) => {
-      if (!device.stat_rate) {
-        return;
-      }
-      const value = this._getCurrentPower(device.stat_rate);
-
-      // Find the effective parent (may be different from direct parent if parent has no stat_rate)
-      const effectiveParent = findEffectiveParent(device.included_in_stat);
-
-      if (value < minPowerThreshold) {
-        // Collect small consumers instead of skipping them
-        const parentKey = effectiveParent ?? "home";
-        if (!smallConsumersByParent.has(parentKey)) {
-          smallConsumersByParent.set(parentKey, []);
-        }
-        smallConsumersByParent.get(parentKey)!.push({
-          statRate: device.stat_rate,
-          name: device.name,
-          value,
-          effectiveParent,
-          idx,
-        });
-        return;
-      }
-
-      const node = {
-        id: device.stat_rate,
-        label: device.name || this._getEntityLabel(device.stat_rate),
-        value,
-        color: getGraphColorByIndex(idx, computedStyle),
-        index: 4,
-        parent: effectiveParent,
-        entityId: device.stat_rate,
-      };
-      if (node.parent) {
-        parentLinks[node.id] = node.parent;
-        links.push({
-          source: node.parent,
-          target: node.id,
-        });
-      } else {
-        untrackedConsumption -= value;
-      }
-      deviceNodes.push(node);
-    });
-
-    // Process small consumers - create "Other" nodes or show single entities
-    smallConsumersByParent.forEach((consumers, parentKey) => {
-      const totalValue = consumers.reduce((sum, c) => sum + c.value, 0);
-      if (totalValue <= 0) {
-        return;
-      }
-
-      if (consumers.length === 1) {
-        // Single entity - show it directly instead of grouping
-        const consumer = consumers[0];
-        const node = {
-          id: consumer.statRate,
-          label: consumer.name || this._getEntityLabel(consumer.statRate),
-          value: consumer.value,
-          color: getGraphColorByIndex(consumer.idx, computedStyle),
-          index: 4,
-          parent: consumer.effectiveParent,
-          entityId: consumer.statRate,
-        };
-        if (node.parent) {
-          parentLinks[node.id] = node.parent;
-          links.push({
-            source: node.parent,
-            target: node.id,
-          });
-        } else {
-          untrackedConsumption -= consumer.value;
-        }
-        deviceNodes.push(node);
-      } else {
-        // Multiple entities - create "Other" group
-        const otherNodeId = `other_${parentKey}`;
-        const otherNode: Node = {
-          id: otherNodeId,
-          label: this.hass.localize(
-            "ui.panel.lovelace.cards.energy.energy_devices_detail_graph.other"
-          ),
-          value: Math.ceil(totalValue),
-          color: computedStyle
-            .getPropertyValue("--state-unavailable-color")
-            .trim(),
-          index: 4,
-        };
-
-        if (parentKey !== "home") {
-          // Has a parent device
-          parentLinks[otherNodeId] = parentKey;
-          links.push({
-            source: parentKey,
-            target: otherNodeId,
-          });
-        } else {
-          // Top-level "Other" - will be linked to home/floor/area later
-          untrackedConsumption -= totalValue;
-        }
-        deviceNodes.push(otherNode);
-      }
-    });
-    const devicesWithoutParent = deviceNodes.filter(
-      (node) => !parentLinks[node.id]
+    const deviceLabels = computeEnergyDeviceLabels(
+      this._states,
+      this._formatEntityName,
+      prefs.device_consumption,
+      this._data.statsMetadata,
+      "stat_rate"
     );
 
-    const { group_by_area, group_by_floor } = this._config;
-    if (group_by_area || group_by_floor) {
-      const { areas, floors } = this._groupByFloorAndArea(devicesWithoutParent);
-
-      Object.keys(floors)
-        .sort(
-          (a, b) =>
-            (this.hass.floors[b]?.level ?? -Infinity) -
-            (this.hass.floors[a]?.level ?? -Infinity)
-        )
-        .forEach((floorId) => {
-          let floorNodeId = `floor_${floorId}`;
-          if (floorId === "no_floor" || !group_by_floor) {
-            // link "no_floor" areas to home
-            floorNodeId = "home";
-          } else {
-            nodes.push({
-              id: floorNodeId,
-              label: this.hass.floors[floorId].name,
-              value: floors[floorId].value,
-              index: 2,
-              color: computedStyle.getPropertyValue("--primary-color").trim(),
-            });
-            links.push({
-              source: "home",
-              target: floorNodeId,
-            });
-          }
-          floors[floorId].areas.forEach((areaId) => {
-            let targetNodeId: string;
-
-            if (areaId === "no_area" || !group_by_area) {
-              // If group_by_area is false, link devices to floor or home
-              targetNodeId = floorNodeId;
-            } else {
-              // Create area node and link it to floor
-              const areaNodeId = `area_${areaId}`;
-              nodes.push({
-                id: areaNodeId,
-                label: this.hass.areas[areaId]?.name || areaId,
-                value: areas[areaId].value,
-                index: 3,
-                color: computedStyle.getPropertyValue("--primary-color").trim(),
-              });
-              links.push({
-                source: floorNodeId,
-                target: areaNodeId,
-                value: areas[areaId].value,
-              });
-              targetNodeId = areaNodeId;
-            }
-
-            // Link devices to the appropriate target (area, floor, or home)
-            areas[areaId].devices.forEach((device) => {
-              links.push({
-                source: targetNodeId,
-                target: device.id,
-                value: device.value,
-              });
-            });
-          });
-        });
-    } else {
-      devicesWithoutParent.forEach((deviceNode) => {
-        links.push({
-          source: "home",
-          target: deviceNode.id,
-          value: deviceNode.value,
-        });
-      });
-    }
-    const deviceSections = this._getDeviceSections(parentLinks, deviceNodes);
-    deviceSections.forEach((section, index) => {
-      section.forEach((node: Node) => {
-        nodes.push({ ...node, index: 4 + index });
-      });
+    const {
+      deviceNodes,
+      parentLinks,
+      links: deviceLinks,
+      untrackedConsumption,
+    } = buildSankeyDeviceNodes({
+      devices: prefs.device_consumption,
+      computedStyle,
+      localize: this._i18n.localize,
+      rootNodeId: "home",
+      minThreshold: minPowerThreshold,
+      maxDevices: this._config.max_devices ?? DEFAULT_MAX_SANKEY_DEVICES,
+      untrackedFloor: 1,
+      ceilOtherValue: true,
+      initialUntracked: homeNode.value,
+      getId: (device) => device.stat_rate,
+      getValue: (id) => this._getCurrentPower(id),
+      getLabel: (id) => deviceLabels[id] || this._getEntityLabel(id),
+      getEntityId: (id) => id,
     });
+    links.push(...deviceLinks);
 
-    // untracked consumption (only show if larger than 1W)
-    if (untrackedConsumption > 1) {
-      nodes.push({
-        id: "untracked",
-        label: this.hass.localize(
-          "ui.panel.lovelace.cards.energy.energy_devices_detail_graph.untracked_consumption"
-        ),
-        value: untrackedConsumption,
-        color: computedStyle
-          .getPropertyValue("--state-unavailable-color")
-          .trim(),
-        index: 3 + deviceSections.length,
-      });
-      links.push({
-        source: "home",
-        target: "untracked",
-        value: untrackedConsumption,
-      });
-    }
+    const { group_by_area, group_by_floor } = this._config;
+    const layout = buildSankeyLayout({
+      states: this._states,
+      registries: this._registries,
+      computedStyle,
+      localize: this._i18n.localize,
+      deviceNodes,
+      parentLinks,
+      rootNodeId: "home",
+      groupByFloor: !!group_by_floor,
+      groupByArea: !!group_by_area,
+      untrackedConsumption,
+      untrackedFloor: 1,
+    });
+    nodes.push(...layout.nodes);
+    links.push(...layout.links);
 
     const hasData = nodes.some((node) => node.value > 0);
 
@@ -563,30 +373,29 @@ class HuiPowerSankeyCard
         })}
       >
         <div class="card-content">
-          ${hasData
-            ? html`<ha-sankey-chart
-                .hass=${this.hass}
-                .data=${{ nodes, links }}
-                .vertical=${vertical}
-                .valueFormatter=${this._valueFormatter}
-                @node-click=${this._handleNodeClick}
-              ></ha-sankey-chart>`
-            : html`${this.hass.localize(
-                "ui.panel.lovelace.cards.energy.no_data"
-              )}`}
+          ${
+            hasData
+              ? html`<ha-sankey-chart
+                  .data=${{ nodes, links }}
+                  .vertical=${vertical}
+                  .showValues=${this._config.show_values === true}
+                  .valueFormatter=${this._valueFormatter}
+                  @node-click=${this._handleNodeClick}
+                ></ha-sankey-chart>`
+              : html`${this._i18n.localize(
+                  "ui.panel.lovelace.cards.energy.no_data"
+                )}`
+          }
         </div>
       </ha-card>
     `;
   }
 
   private _valueFormatter = (value: number) =>
-    formatPowerShort(this.hass, value);
+    formatPowerShort(this._i18n.locale, value);
 
   private _handleNodeClick(ev: CustomEvent<{ node: Node }>) {
-    const { node } = ev.detail;
-    if (node.entityId) {
-      fireEvent(this, "hass-more-info", { entityId: node.entityId });
-    }
+    fireSankeyNodeMoreInfo(this, ev.detail.node);
   }
 
   /**
@@ -594,9 +403,6 @@ class HuiPowerSankeyCard
    * Similar to computeConsumptionData but for instantaneous power.
    */
   private _computePowerData(prefs: EnergyPreferences): PowerData {
-    // Clear tracked entities and rebuild the set
-    this._entities.clear();
-
     let solar = 0;
     let from_grid = 0;
     let to_grid = 0;
@@ -718,120 +524,14 @@ class HuiPowerSankeyCard
     };
   }
 
-  protected _groupByFloorAndArea(deviceNodes: Node[]) {
-    const areas: Record<string, { value: number; devices: Node[] }> = {
-      no_area: {
-        value: 0,
-        devices: [],
-      },
-    };
-    const floors: Record<string, { value: number; areas: string[] }> = {
-      no_floor: {
-        value: 0,
-        areas: ["no_area"],
-      },
-    };
-    deviceNodes.forEach((deviceNode) => {
-      const entity = this.hass.states[deviceNode.id];
-      const { area, floor } = entity
-        ? getEntityContext(
-            entity,
-            this.hass.entities,
-            this.hass.devices,
-            this.hass.areas,
-            this.hass.floors
-          )
-        : { area: null, floor: null };
-      if (area) {
-        if (area.area_id in areas) {
-          areas[area.area_id].value += deviceNode.value;
-          areas[area.area_id].devices.push(deviceNode);
-        } else {
-          areas[area.area_id] = {
-            value: deviceNode.value,
-            devices: [deviceNode],
-          };
-        }
-        // see if the area has a floor
-        if (floor) {
-          if (floor.floor_id in floors) {
-            floors[floor.floor_id].value += deviceNode.value;
-            if (!floors[floor.floor_id].areas.includes(area.area_id)) {
-              floors[floor.floor_id].areas.push(area.area_id);
-            }
-          } else {
-            floors[floor.floor_id] = {
-              value: deviceNode.value,
-              areas: [area.area_id],
-            };
-          }
-        } else {
-          floors.no_floor.value += deviceNode.value;
-          if (!floors.no_floor.areas.includes(area.area_id)) {
-            floors.no_floor.areas.unshift(area.area_id);
-          }
-        }
-      } else {
-        areas.no_area.value += deviceNode.value;
-        areas.no_area.devices.push(deviceNode);
-      }
-    });
-    return { areas, floors };
-  }
-
-  /**
-   * Organizes device nodes into hierarchical sections based on parent-child relationships.
-   */
-  protected _getDeviceSections(
-    parentLinks: Record<string, string>,
-    deviceNodes: Node[]
-  ): Node[][] {
-    const parentSection: Node[] = [];
-    const childSection: Node[] = [];
-    const parentIds = Object.values(parentLinks);
-    const remainingLinks: typeof parentLinks = {};
-
-    deviceNodes.forEach((deviceNode) => {
-      const isChild = deviceNode.id in parentLinks;
-      const isParent = parentIds.includes(deviceNode.id);
-      if (isParent && !isChild) {
-        // Top-level parents (have children but no parents themselves)
-        parentSection.push(deviceNode);
-      } else {
-        childSection.push(deviceNode);
-      }
-    });
-
-    // Filter out links where parent is already in current parent section
-    Object.entries(parentLinks).forEach(([child, parent]) => {
-      if (!parentSection.some((node) => node.id === parent)) {
-        remainingLinks[child] = parent;
-      }
-    });
-
-    if (parentSection.length > 0) {
-      // Recursively process child section with remaining links
-      return [
-        parentSection,
-        ...this._getDeviceSections(remainingLinks, childSection),
-      ];
-    }
-
-    // Base case: no more parent-child relationships to process
-    return [deviceNodes];
-  }
-
   /**
    * Get current power value from entity state, normalized to watts (W)
    * @param entityId - The entity ID to get power value from
    * @returns Power value in W, or 0 if entity not found or invalid
    */
   private _getCurrentPower(entityId: string): number {
-    // Track this entity for state change detection
-    this._entities.add(entityId);
-
     // getPowerFromState returns power in W
-    return getPowerFromState(this.hass.states[entityId]) ?? 0;
+    return getPowerFromState(this._states[entityId]) ?? 0;
   }
 
   /**
@@ -840,7 +540,7 @@ class HuiPowerSankeyCard
    * @returns Friendly name if available, otherwise the entity ID
    */
   private _getEntityLabel(entityId: string): string {
-    const stateObj = this.hass.states[entityId];
+    const stateObj = this._states[entityId];
     if (!stateObj) {
       return entityId;
     }

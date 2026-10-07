@@ -1,9 +1,15 @@
-import { consume, type ContextType } from "@lit/context";
+import type { ContextType } from "@lit/context";
 import { mdiFilterVariantRemove } from "@mdi/js";
 import type { CSSResultGroup, PropertyValues } from "lit";
 import { css, html, LitElement, nothing } from "lit";
-import { customElement, property, query, state } from "lit/decorators";
+import { customElement, property, state } from "lit/decorators";
+import { createRef, ref } from "lit/directives/ref";
 import memoizeOne from "memoize-one";
+import { consume } from "../common/decorators/consume";
+import {
+  FilterPanelController,
+  filterPanelStyles,
+} from "../common/controllers/filter-panel-controller";
 import { consumeLocalize } from "../common/decorators/consume-context-entry";
 import { fireEvent } from "../common/dom/fire_event";
 import { computeStateDomain } from "../common/entity/compute_state_domain";
@@ -52,11 +58,11 @@ export class HaFilterEntities extends LitElement {
 
   @property({ type: Boolean, reflect: true }) public expanded = false;
 
-  @state() private _shouldRender = false;
-
   @state() private _filter?: string;
 
-  @query("ha-list") private _list?: HTMLElement;
+  private _content = createRef<HTMLElement>();
+
+  private _panel = new FilterPanelController(this, this._content);
 
   public willUpdate(properties: PropertyValues<this>) {
     super.willUpdate(properties);
@@ -78,59 +84,52 @@ export class HaFilterEntities extends LitElement {
       <ha-expansion-panel
         left-chevron
         .expanded=${this.expanded}
-        @expanded-will-change=${this._expandedWillChange}
         @expanded-changed=${this._expandedChanged}
       >
         <div slot="header" class="header">
           ${this._localize("ui.panel.config.entities.caption")}
-          ${this.value?.length
-            ? html`<div class="badge">${this.value?.length}</div>
-                <ha-icon-button
-                  .path=${mdiFilterVariantRemove}
-                  @click=${this._clearFilter}
-                ></ha-icon-button>`
-            : nothing}
+          ${
+            this.value?.length
+              ? html`<div class="badge">${this.value?.length}</div>
+                  <ha-icon-button
+                    .path=${mdiFilterVariantRemove}
+                    @click=${this._clearFilter}
+                  ></ha-icon-button>`
+              : nothing
+          }
         </div>
-        ${this._shouldRender
-          ? html`
-              <ha-input-search
-                appearance="outlined"
-                .value=${this._filter}
-                @input=${this._handleSearchChange}
-              >
-              </ha-input-search>
-              <ha-list class="ha-scrollbar" multi>
-                <lit-virtualizer
-                  .items=${this._entities(
-                    this._states,
-                    this.type,
-                    this._filter || "",
-                    this._i18n.locale.language,
-                    this.value
-                  )}
-                  .keyFunction=${this._keyFunction}
-                  .renderItem=${this._renderItem}
-                  @click=${this._handleItemClick}
-                  @keydown=${this._handleItemKeydown}
-                >
-                </lit-virtualizer>
-              </ha-list>
-            `
-          : nothing}
       </ha-expansion-panel>
+      ${
+        this._panel.showContent
+          ? html`
+              <div class="content" ${ref(this._content)}>
+                <ha-input-search
+                  appearance="outlined"
+                  .value=${this._filter}
+                  @input=${this._handleSearchChange}
+                >
+                </ha-input-search>
+                <ha-list class="ha-scrollbar" multi>
+                  <lit-virtualizer
+                    .items=${this._entities(
+                      this._states,
+                      this.type,
+                      this._filter || "",
+                      this._i18n.locale.language,
+                      this.value
+                    )}
+                    .keyFunction=${this._keyFunction}
+                    .renderItem=${this._renderItem}
+                    @click=${this._handleItemClick}
+                    @keydown=${this._handleItemKeydown}
+                  >
+                  </lit-virtualizer>
+                </ha-list>
+              </div>
+            `
+          : nothing
+      }
     `;
-  }
-
-  protected updated(changed: PropertyValues<this>) {
-    if (changed.has("expanded") && this.expanded) {
-      setTimeout(() => {
-        if (!this.expanded) return;
-        this._list!.style.height = `${this.clientHeight - 49 - 4 - 32}px`;
-        // 49px - height of a header + 1px
-        // 4px - padding-top of the search-input
-        // 32px - height of the search input
-      }, 300);
-    }
   }
 
   private _keyFunction = (entity) => entity?.entity_id;
@@ -167,10 +166,6 @@ export class HaFilterEntities extends LitElement {
       this.value = [...(this.value || []), value];
     }
     listItem.selected = this.value?.includes(value);
-  }
-
-  private _expandedWillChange(ev) {
-    this._shouldRender = ev.detail.expanded;
   }
 
   private _expandedChanged(ev) {
@@ -251,17 +246,11 @@ export class HaFilterEntities extends LitElement {
   static get styles(): CSSResultGroup {
     return [
       haStyleScrollbar,
+      filterPanelStyles,
       css`
-        :host {
-          border-bottom: 1px solid var(--divider-color);
-        }
-        :host([expanded]) {
+        ha-list {
           flex: 1;
-          height: 0;
-        }
-        ha-expansion-panel {
-          --ha-card-border-radius: var(--ha-border-radius-square);
-          --expansion-panel-content-padding: 0;
+          min-height: 0;
         }
         .header {
           display: flex;

@@ -4,12 +4,11 @@ import { isComponentLoaded } from "../../../common/config/is_component_loaded";
 import { relativeTime } from "../../../common/datetime/relative_time";
 import { fireEvent } from "../../../common/dom/fire_event";
 import "../../../components/ha-button";
-import "../../../components/ha-dialog-footer";
 import "../../../components/ha-dialog";
-import "../../../components/ha-md-list";
-import "../../../components/ha-md-list-item";
-import type { HaSwitch } from "../../../components/ha-switch";
+import "../../../components/ha-dialog-footer";
 import "../../../components/ha-switch";
+import type { HaSwitch } from "../../../components/ha-switch";
+import "../../../components/item/ha-row-item";
 import type { BackupConfig } from "../../../data/backup";
 import { fetchBackupConfig } from "../../../data/backup";
 import { getSupervisorUpdateConfig } from "../../../data/supervisor/update";
@@ -79,8 +78,7 @@ export class DialogLabsPreviewFeatureEnable
   }
 
   private _computeCreateBackupTexts():
-    | { title: string; description?: string }
-    | undefined {
+    { title: string; description?: string } | undefined {
     if (
       !this._backupConfig ||
       !this._backupConfig.automatic_backups_configured ||
@@ -150,31 +148,35 @@ export class DialogLabsPreviewFeatureEnable
         @closed=${this._dialogClosed}
       >
         <p>
-          ${this.hass.localize(
-            `component.${this._params.preview_feature.domain}.preview_features.${this._params.preview_feature.preview_feature}.enable_confirmation`
-          ) || this.hass.localize("ui.panel.config.labs.enable_confirmation")}
+          ${
+            this.hass.localize(
+              `component.${this._params.preview_feature.domain}.preview_features.${this._params.preview_feature.preview_feature}.enable_confirmation`
+            ) || this.hass.localize("ui.panel.config.labs.enable_confirmation")
+          }
         </p>
-        ${createBackupTexts
-          ? html`
-              <ha-md-list>
-                <ha-md-list-item>
+        ${
+          createBackupTexts
+            ? html`
+                <ha-row-item>
                   <span slot="headline">${createBackupTexts.title}</span>
-                  ${createBackupTexts.description
-                    ? html`
-                        <span slot="supporting-text">
-                          ${createBackupTexts.description}
-                        </span>
-                      `
-                    : nothing}
+                  ${
+                    createBackupTexts.description
+                      ? html`
+                          <span slot="supporting-text">
+                            ${createBackupTexts.description}
+                          </span>
+                        `
+                      : nothing
+                  }
                   <ha-switch
                     slot="end"
                     .checked=${this._createBackup}
                     @change=${this._createBackupChanged}
                   ></ha-switch>
-                </ha-md-list-item>
-              </ha-md-list>
-            `
-          : nothing}
+                </ha-row-item>
+              `
+            : nothing
+        }
         <ha-dialog-footer slot="footer">
           <ha-button
             slot="secondaryAction"
@@ -206,10 +208,8 @@ export class DialogLabsPreviewFeatureEnable
       color: var(--secondary-text-color);
     }
 
-    ha-md-list {
-      background: none;
-      --md-list-item-leading-space: var(--ha-space-6);
-      --md-list-item-trailing-space: var(--ha-space-6);
+    ha-row-item {
+      --ha-row-item-padding-inline: var(--ha-space-6);
       margin: 0;
       padding: 0;
       border-top: var(--ha-border-width-sm) solid var(--divider-color);

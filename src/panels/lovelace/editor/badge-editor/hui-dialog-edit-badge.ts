@@ -5,6 +5,7 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import type { HASSDomEvent } from "../../../../common/dom/fire_event";
 import { fireEvent } from "../../../../common/dom/fire_event";
+import { fireEntityRelatedContext } from "../../../../data/context";
 import { computeRTLDirection } from "../../../../common/util/compute_rtl";
 import { stripDefaults } from "../../../../common/util/strip-defaults";
 import { withViewTransition } from "../../../../common/util/view-transition";
@@ -14,8 +15,6 @@ import "../../../../components/ha-dialog";
 import "../../../../components/ha-icon-button";
 import "../../../../components/ha-spinner";
 import type { LovelaceBadgeConfig } from "../../../../data/lovelace/config/badge";
-import { ensureBadgeConfig } from "../../../../data/lovelace/config/badge";
-import type { LovelaceViewConfig } from "../../../../data/lovelace/config/view";
 import {
   getCustomBadgeEntry,
   isCustomType,
@@ -31,12 +30,10 @@ import {
 import type { HomeAssistant } from "../../../../types";
 import { showSaveSuccessToast } from "../../../../util/toast-saved-success";
 import "../../badges/hui-badge";
-import "../../sections/hui-section";
-import { addBadge, replaceBadge } from "../config-util";
+import { getConfigEntityId } from "../../common/get-config-entity-id";
 import { getBadgeDefaultConfig } from "../get-badge-default-config";
 import { getBadgeDocumentationURL } from "../get-dashboard-documentation-url";
 import type { ConfigChangedEvent } from "../hui-element-editor";
-import { findLovelaceContainer } from "../lovelace-path";
 import type { GUIModeChangedEvent } from "../types";
 import "./hui-badge-element-editor";
 import type { HuiBadgeElementEditor } from "./hui-badge-element-editor";
@@ -68,8 +65,6 @@ export class HuiDialogEditBadge
 
   @state() private _badgeConfig?: LovelaceBadgeConfig;
 
-  @state() private _containerConfig!: LovelaceViewConfig;
-
   @state() private _saving = false;
 
   @state() private _error?: string;
@@ -89,23 +84,7 @@ export class HuiDialogEditBadge
     this._guiModeAvailable = true;
     this._open = true;
 
-    const containerConfig = findLovelaceContainer(
-      params.lovelaceConfig,
-      params.path
-    );
-
-    if ("strategy" in containerConfig) {
-      throw new Error("Can't edit strategy");
-    }
-
-    this._containerConfig = containerConfig;
-
-    if ("badgeConfig" in params) {
-      this._badgeConfig = params.badgeConfig;
-    } else {
-      const badge = this._containerConfig.badges?.[params.badgeIndex];
-      this._badgeConfig = badge != null ? ensureBadgeConfig(badge) : badge;
-    }
+    this._badgeConfig = params.badgeConfig;
 
     this.large = false;
     if (this._badgeConfig && !Object.isFrozen(this._badgeConfig)) {
@@ -116,7 +95,7 @@ export class HuiDialogEditBadge
       : undefined;
     const normalize = (config: LovelaceBadgeConfig) =>
       stripDefaults(config, effectiveDefaults);
-    if ("badgeConfig" in params && this._badgeConfig) {
+    if (params.isNew && this._badgeConfig) {
       this._initDirtyTracking({ type: "deep" }, { type: "" }, normalize);
       this._updateDirtyState(this._badgeConfig);
     } else {
@@ -139,34 +118,48 @@ export class HuiDialogEditBadge
     this._badgeConfig = undefined;
     this._error = undefined;
     this._documentationURL = undefined;
+    this._updateRelatedContext(undefined);
     fireEvent(this, "dialog-closed", { dialog: this.localName });
   }
 
   protected updated(changedProps: PropertyValues): void {
-    if (
-      !this._badgeConfig ||
-      this._documentationURL !== undefined ||
-      !changedProps.has("_badgeConfig")
-    ) {
+    super.updated(changedProps);
+    if (!changedProps.has("_badgeConfig")) {
       return;
     }
 
-    const oldConfig = changedProps.get("_badgeConfig") as LovelaceBadgeConfig;
+    if (this._badgeConfig && this._documentationURL === undefined) {
+      const oldConfig = changedProps.get("_badgeConfig") as LovelaceBadgeConfig;
 
-    if (oldConfig?.type !== this._badgeConfig!.type) {
-      this._documentationURL = this._badgeConfig!.type
-        ? getBadgeDocumentationURL(this.hass, this._badgeConfig!.type)
-        : undefined;
+      if (oldConfig?.type !== this._badgeConfig.type) {
+        this._documentationURL = this._badgeConfig.type
+          ? getBadgeDocumentationURL(this.hass, this._badgeConfig.type)
+          : undefined;
+      }
     }
+
+    this._updateRelatedContext(
+      this._badgeConfig ? getConfigEntityId(this._badgeConfig) : undefined
+    );
+  }
+
+  private _relatedEntityId?: string;
+
+  private _updateRelatedContext(entityId: string | undefined): void {
+    if (entityId === this._relatedEntityId) {
+      return;
+    }
+    this._relatedEntityId = entityId;
+    fireEntityRelatedContext(this, entityId);
   }
 
   protected render() {
-    if (!this._params) {
+    if (!this._params || !this._badgeConfig) {
       return nothing;
     }
 
     let heading: string;
-    if (this._badgeConfig && this._badgeConfig.type) {
+    if (this._badgeConfig.type) {
       let badgeName: string | undefined;
       if (isCustomType(this._badgeConfig.type)) {
         // prettier-ignore
@@ -186,13 +179,6 @@ export class HuiDialogEditBadge
         "ui.panel.lovelace.editor.edit_badge.typed_header",
         { type: badgeName }
       );
-    } else if (!this._badgeConfig) {
-      heading = this._containerConfig.title
-        ? this.hass!.localize(
-            "ui.panel.lovelace.editor.edit_badge.pick_badge_view_title",
-            { name: this._containerConfig.title }
-          )
-        : this.hass!.localize("ui.panel.lovelace.editor.edit_badge.pick_badge");
     } else {
       heading = this.hass!.localize(
         "ui.panel.lovelace.editor.edit_badge.header"
@@ -220,19 +206,21 @@ export class HuiDialogEditBadge
           @click=${this._enlarge}
           >${heading}</span
         >
-        ${this._documentationURL !== undefined
-          ? html`
-              <ha-icon-button
-                .path=${mdiHelpCircleOutline}
-                slot="headerActionItems"
-                .href=${this._documentationURL}
-                title=${this.hass!.localize("ui.panel.lovelace.menu.help")}
-                target="_blank"
-                rel="noreferrer"
-                dir=${computeRTLDirection(this.hass)}
-              ></ha-icon-button>
-            `
-          : nothing}
+        ${
+          this._documentationURL !== undefined
+            ? html`
+                <ha-icon-button
+                  .path=${mdiHelpCircleOutline}
+                  slot="headerActionItems"
+                  .href=${this._documentationURL}
+                  title=${this.hass!.localize("ui.panel.lovelace.menu.help")}
+                  target="_blank"
+                  rel="noreferrer"
+                  dir=${computeRTLDirection(this.hass)}
+                ></ha-icon-button>
+              `
+            : nothing
+        }
         <div class="content">
           <div class="element-editor">
             <hui-badge-element-editor
@@ -253,34 +241,38 @@ export class HuiDialogEditBadge
               preview
               class=${this._error ? "blur" : ""}
             ></hui-badge>
-            ${this._error
-              ? html`
-                  <ha-spinner
-                    size="small"
-                    aria-label="Can't update badge"
-                  ></ha-spinner>
-                `
-              : ``}
+            ${
+              this._error
+                ? html`
+                    <ha-spinner
+                      size="small"
+                      aria-label="Can't update badge"
+                    ></ha-spinner>
+                  `
+                : ``
+            }
           </div>
         </div>
         <ha-dialog-footer slot="footer">
-          ${this._badgeConfig !== undefined
-            ? html`
-                <ha-button
-                  appearance="plain"
-                  slot="secondaryAction"
-                  @click=${this._toggleMode}
-                  .disabled=${!this._guiModeAvailable}
-                  class="gui-mode-button"
-                >
-                  ${this.hass!.localize(
-                    !this._badgeEditorEl || this._GUImode
-                      ? "ui.panel.lovelace.editor.edit_badge.show_code_editor"
-                      : "ui.panel.lovelace.editor.edit_badge.show_visual_editor"
-                  )}
-                </ha-button>
-              `
-            : nothing}
+          ${
+            this._badgeConfig !== undefined
+              ? html`
+                  <ha-button
+                    appearance="plain"
+                    slot="secondaryAction"
+                    @click=${this._toggleMode}
+                    .disabled=${!this._guiModeAvailable}
+                    class="gui-mode-button"
+                  >
+                    ${this.hass!.localize(
+                      !this._badgeEditorEl || this._GUImode
+                        ? "ui.panel.lovelace.editor.edit_badge.show_code_editor"
+                        : "ui.panel.lovelace.editor.edit_badge.show_visual_editor"
+                    )}
+                  </ha-button>
+                `
+              : nothing
+          }
           <ha-button
             appearance="plain"
             slot="secondaryAction"
@@ -387,16 +379,7 @@ export class HuiDialogEditBadge
       return;
     }
     this._saving = true;
-    const path = this._params!.path;
-    await this._params!.saveConfig(
-      "badgeConfig" in this._params!
-        ? addBadge(this._params!.lovelaceConfig, path, this._badgeConfig!)
-        : replaceBadge(
-            this._params!.lovelaceConfig,
-            [...path, this._params!.badgeIndex],
-            this._badgeConfig!
-          )
-    );
+    await this._params!.saveBadgeConfig(this._badgeConfig!);
     this._saving = false;
     this._markDirtyStateClean();
     showSaveSuccessToast(this, this.hass);

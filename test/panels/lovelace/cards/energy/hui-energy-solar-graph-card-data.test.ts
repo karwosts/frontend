@@ -10,7 +10,6 @@ import type {
   EnergySolarForecasts,
   SolarSourceTypeEnergyPreference,
 } from "../../../../../src/data/energy";
-import type { HomeAssistant } from "../../../../../src/types";
 import { createMockComputedStyle } from "../../../../fixtures/computed-style";
 import { digestResult } from "../../../../fixtures/digest";
 import { createMockHass } from "../../../../fixtures/hass";
@@ -24,10 +23,8 @@ const computedStyles = createMockComputedStyle({
   "--primary-text-color": "#212121",
 });
 
-const hass = {
-  ...createMockHass(),
-  themes: { darkMode: false },
-} as unknown as HomeAssistant;
+const { localize, states, formatEntityName } = createMockHass();
+const baseParams = { localize, states, formatEntityName, darkMode: false };
 
 const now = new Date(FIXED_EPOCH_MS + dayMs);
 
@@ -84,7 +81,7 @@ describe("generateEnergySolarGraphData", () => {
       },
     });
     const result = generateEnergySolarGraphData({
-      hass,
+      ...baseParams,
       energyData,
       forecasts: undefined,
       computedStyles,
@@ -102,7 +99,7 @@ describe("generateEnergySolarGraphData", () => {
     });
     expect(
       generateEnergySolarGraphData({
-        hass,
+        ...baseParams,
         energyData,
         forecasts: undefined,
         computedStyles,
@@ -119,7 +116,7 @@ describe("generateEnergySolarGraphData", () => {
       prefs: solarPrefs({ sources: 2 }),
     });
     const result = generateEnergySolarGraphData({
-      hass,
+      ...baseParams,
       energyData,
       forecasts: undefined,
       computedStyles,
@@ -140,7 +137,7 @@ describe("generateEnergySolarGraphData", () => {
     });
     expect(
       generateEnergySolarGraphData({
-        hass,
+        ...baseParams,
         energyData,
         forecasts: undefined,
         computedStyles,
@@ -157,7 +154,7 @@ describe("generateEnergySolarGraphData", () => {
     });
     const forecasts = buildForecasts(2 * 24, 60 * 60 * 1000, ["entry_0"]);
     const result = generateEnergySolarGraphData({
-      hass,
+      ...baseParams,
       energyData,
       forecasts,
       computedStyles,
@@ -181,7 +178,7 @@ describe("generateEnergySolarGraphData", () => {
     ]);
     expect(
       generateEnergySolarGraphData({
-        hass,
+        ...baseParams,
         energyData,
         forecasts,
         computedStyles,
@@ -200,7 +197,7 @@ describe("generateEnergySolarGraphData", () => {
     expect(
       digestResult(
         generateEnergySolarGraphData({
-          hass,
+          ...baseParams,
           energyData,
           forecasts: undefined,
           computedStyles,
@@ -208,5 +205,58 @@ describe("generateEnergySolarGraphData", () => {
         })
       )
     ).toMatchSnapshot();
+  });
+
+  // Regression test for #52938: a lone statistics bucket must be zero-filled
+  // across the day so ECharts keeps the configured axis range, while forecast
+  // line series stay untouched by the bar-bucket fill.
+  it("zero-fills bars around a single bucket without touching forecast lines", () => {
+    const HOUR = 60 * 60 * 1000;
+    const base = generateEnergyData(7, {
+      days: 1,
+      period: "hour",
+      prefs: solarPrefs({ sources: 1, forecast: true }),
+    });
+    const startMs = base.start.getTime();
+    const energyData = {
+      ...base,
+      stats: Object.fromEntries(
+        Object.entries(base.stats).map(([id, rows]) => [
+          id,
+          rows.filter((row) => row.start === startMs + 10 * HOUR),
+        ])
+      ),
+    };
+    const forecasts = buildForecasts(24, HOUR, ["entry_0"]);
+    const result = generateEnergySolarGraphData({
+      ...baseParams,
+      energyData,
+      forecasts,
+      computedStyles,
+      now,
+    });
+
+    const bars = result.chartData.find(
+      (d) => d.id === "sensor.solar_production"
+    )!;
+    const xs = bars.data!.map((item: any) =>
+      Number(item?.value?.[0] ?? item?.[0])
+    );
+    expect(xs).toHaveLength(24);
+    const sorted = [...xs].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i] - sorted[i - 1]).toBe(HOUR);
+    }
+
+    const forecast = result.chartData.find((d) =>
+      String(d.id).startsWith("forecast-")
+    )!;
+    expect(forecast.data).toHaveLength(24);
+    // Forecast points are centered with the nominal half-period offset.
+    for (const [index, item] of (forecast.data as any[]).entries()) {
+      expect(Number(item?.value?.[0] ?? item?.[0])).toBe(
+        startMs + index * HOUR + HOUR / 2
+      );
+    }
   });
 });

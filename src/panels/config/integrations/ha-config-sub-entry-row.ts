@@ -13,12 +13,14 @@ import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import "../../../components/ha-dropdown";
 import "../../../components/ha-dropdown-item";
+import "../../../components/item/ha-list-item-base";
+import "../../../components/list/ha-list-base";
 import type { ConfigEntry } from "../../../data/config_entries";
 import { deleteSubEntry, updateSubEntry } from "../../../data/config_entries";
+import { groupDevicesByParent } from "../../../data/device/device_registry";
 import type { DiagnosticInfo } from "../../../data/diagnostics";
 import type { EntityRegistryEntry } from "../../../data/entity/entity_registry";
 import type { IntegrationManifest } from "../../../data/integration";
-import type { SubEntryData } from "./ha-config-integration-page";
 import { showSubConfigFlowDialog } from "../../../dialogs/config-flow/show-dialog-sub-config-flow";
 import type { HomeAssistant } from "../../../types";
 import {
@@ -26,6 +28,7 @@ import {
   showPromptDialog,
 } from "../../lovelace/custom-card-helpers";
 import "./ha-config-entry-device-row";
+import type { SubEntryData } from "./ha-config-integration-page";
 
 @customElement("ha-config-sub-entry-row")
 class HaConfigSubEntryRow extends LitElement {
@@ -53,108 +56,127 @@ class HaConfigSubEntryRow extends LitElement {
     const services = this.data.services;
     const entities = this._getEntities();
 
-    return html`<ha-md-list>
-      <ha-md-list-item
+    return html`<div class="sub-entry-card">
+      <ha-list-item-base
         class="sub-entry"
         data-entry-id=${configEntry.entry_id}
         .configEntry=${configEntry}
         .subEntry=${subEntry}
       >
-        ${devices.length || services.length
-          ? html`<ha-icon-button
-              class="expand-button ${classMap({ expanded: this._expanded })}"
-              .path=${mdiChevronDown}
-              slot="start"
-              @click=${this._toggleExpand}
-            ></ha-icon-button>`
-          : nothing}
+        ${
+          devices.length || services.length
+            ? html`<ha-icon-button
+                class="expand-button ${classMap({ expanded: this._expanded })}"
+                .path=${mdiChevronDown}
+                slot="start"
+                @click=${this._toggleExpand}
+              ></ha-icon-button>`
+            : nothing
+        }
         <span slot="headline">${subEntry.title}</span>
         <span slot="supporting-text"
           >${this.hass.localize(
             `component.${configEntry.domain}.config_subentries.${subEntry.subentry_type}.entry_type`
           )}</span
         >
-        ${configEntry.supported_subentry_types[subEntry.subentry_type]
-          ?.supports_reconfigure
-          ? html`
-              <ha-icon-button
-                slot="end"
-                @click=${this._handleReconfigureSub}
-                .path=${mdiCogOutline}
-                .label=${this.hass.localize(
-                  `component.${configEntry.domain}.config_subentries.${subEntry.subentry_type}.initiate_flow.reconfigure`
-                ) ||
-                this.hass.localize(
-                  "ui.panel.config.integrations.config_entry.configure"
-                )}
-              >
-              </ha-icon-button>
-            `
-          : nothing}
+        ${
+          configEntry.supported_subentry_types[subEntry.subentry_type]
+            ?.supports_reconfigure
+            ? html`
+                <ha-icon-button
+                  slot="end"
+                  @click=${this._handleReconfigureSub}
+                  .path=${mdiCogOutline}
+                  .label=${
+                    this.hass.localize(
+                      `component.${configEntry.domain}.config_subentries.${subEntry.subentry_type}.initiate_flow.reconfigure`
+                    ) ||
+                    this.hass.localize(
+                      "ui.panel.config.integrations.config_entry.configure"
+                    )
+                  }
+                >
+                </ha-icon-button>
+              `
+            : nothing
+        }
         <ha-dropdown slot="end" @wa-select=${this._handleMenuAction}>
           <ha-icon-button
             slot="trigger"
             .label=${this.hass.localize("ui.common.menu")}
             .path=${mdiDotsVertical}
           ></ha-icon-button>
-          ${devices.length || services.length
-            ? html`
-                <a
-                  href=${devices.length === 1
-                    ? `/config/devices/device/${devices[0].id}`
-                    : `/config/devices/dashboard?historyBack=1&config_entry=${configEntry.entry_id}&sub_entry=${subEntry.subentry_id}`}
-                >
-                  <ha-dropdown-item value="devices">
-                    <ha-svg-icon .path=${mdiDevices} slot="icon"></ha-svg-icon>
-                    ${this.hass.localize(
-                      `ui.panel.config.integrations.config_entry.devices`,
-                      { count: devices.length }
-                    )}
-                    <ha-icon-next slot="details"></ha-icon-next>
-                  </ha-dropdown-item>
-                </a>
-              `
-            : nothing}
-          ${services.length
-            ? html`
-                <a
-                  href=${services.length === 1
-                    ? `/config/devices/device/${services[0].id}`
-                    : `/config/devices/dashboard?historyBack=1&config_entry=${configEntry.entry_id}&sub_entry=${subEntry.subentry_id}`}
-                >
-                  <ha-dropdown-item value="services">
-                    <ha-svg-icon
-                      .path=${mdiHandExtendedOutline}
-                      slot="icon"
-                    ></ha-svg-icon>
-                    ${this.hass.localize(
-                      `ui.panel.config.integrations.config_entry.services`,
-                      { count: services.length }
-                    )}
-                    <ha-icon-next slot="details"></ha-icon-next>
-                  </ha-dropdown-item>
-                </a>
-              `
-            : nothing}
-          ${entities.length
-            ? html`
-                <a
-                  href=${`/config/entities?historyBack=1&config_entry=${configEntry.entry_id}&sub_entry=${subEntry.subentry_id}`}
-                >
-                  <ha-dropdown-item value="entities">
-                    <ha-svg-icon
-                      .path=${mdiShapeOutline}
-                      slot="icon"
-                    ></ha-svg-icon>
-                    ${this.hass.localize(
-                      `ui.panel.config.integrations.config_entry.entities`,
-                      { count: entities.length }
-                    )}
-                    <ha-icon-next slot="details"></ha-icon-next>
-                  </ha-dropdown-item>
-                </a>
-              `
-            : nothing}
+          ${
+            devices.length || services.length
+              ? html`
+                  <a
+                    href=${
+                      devices.length === 1
+                        ? `/config/devices/device/${devices[0].id}`
+                        : `/config/devices/dashboard?historyBack=1&config_entry=${configEntry.entry_id}&sub_entry=${subEntry.subentry_id}`
+                    }
+                  >
+                    <ha-dropdown-item value="devices">
+                      <ha-svg-icon
+                        .path=${mdiDevices}
+                        slot="icon"
+                      ></ha-svg-icon>
+                      ${this.hass.localize(
+                        `ui.panel.config.integrations.config_entry.devices`,
+                        { count: devices.length }
+                      )}
+                      <ha-icon-next slot="details"></ha-icon-next>
+                    </ha-dropdown-item>
+                  </a>
+                `
+              : nothing
+          }
+          ${
+            services.length
+              ? html`
+                  <a
+                    href=${
+                      services.length === 1
+                        ? `/config/devices/device/${services[0].id}`
+                        : `/config/devices/dashboard?historyBack=1&config_entry=${configEntry.entry_id}&sub_entry=${subEntry.subentry_id}`
+                    }
+                  >
+                    <ha-dropdown-item value="services">
+                      <ha-svg-icon
+                        .path=${mdiHandExtendedOutline}
+                        slot="icon"
+                      ></ha-svg-icon>
+                      ${this.hass.localize(
+                        `ui.panel.config.integrations.config_entry.services`,
+                        { count: services.length }
+                      )}
+                      <ha-icon-next slot="details"></ha-icon-next>
+                    </ha-dropdown-item>
+                  </a>
+                `
+              : nothing
+          }
+          ${
+            entities.length
+              ? html`
+                  <a
+                    href=${`/config/entities?historyBack=1&config_entry=${configEntry.entry_id}&sub_entry=${subEntry.subentry_id}`}
+                  >
+                    <ha-dropdown-item value="entities">
+                      <ha-svg-icon
+                        .path=${mdiShapeOutline}
+                        slot="icon"
+                      ></ha-svg-icon>
+                      ${this.hass.localize(
+                        `ui.panel.config.integrations.config_entry.entities`,
+                        { count: entities.length }
+                      )}
+                      <ha-icon-next slot="details"></ha-icon-next>
+                    </ha-dropdown-item>
+                  </a>
+                `
+              : nothing
+          }
           <ha-dropdown-item value="rename">
             <ha-svg-icon slot="icon" .path=${mdiRenameBox}></ha-svg-icon>
             ${this.hass.localize(
@@ -168,32 +190,36 @@ class HaConfigSubEntryRow extends LitElement {
             )}
           </ha-dropdown-item>
         </ha-dropdown>
-      </ha-md-list-item>
-      ${this._expanded
-        ? html`
-            ${devices.map(
-              (device) =>
-                html`<ha-config-entry-device-row
-                  .hass=${this.hass}
-                  .narrow=${this.narrow}
-                  .entry=${this.entry}
-                  .device=${device}
-                  .entities=${this.entities}
-                ></ha-config-entry-device-row>`
-            )}
-            ${services.map(
-              (service) =>
-                html`<ha-config-entry-device-row
-                  .hass=${this.hass}
-                  .narrow=${this.narrow}
-                  .entry=${this.entry}
-                  .device=${service}
-                  .entities=${this.entities}
-                ></ha-config-entry-device-row>`
-            )}
-          `
-        : nothing}
-    </ha-md-list>`;
+      </ha-list-item-base>
+      ${
+        this._expanded
+          ? html`
+              ${groupDevicesByParent(devices).map(
+                ({ device, isChild, isLastChild }) =>
+                  html`<ha-config-entry-device-row
+                    .hass=${this.hass}
+                    .narrow=${this.narrow}
+                    .entry=${this.entry}
+                    .device=${device}
+                    .entities=${this.entities}
+                    .isChild=${isChild}
+                    .isLastChild=${isLastChild}
+                  ></ha-config-entry-device-row>`
+              )}
+              ${services.map(
+                (service) =>
+                  html`<ha-config-entry-device-row
+                    .hass=${this.hass}
+                    .narrow=${this.narrow}
+                    .entry=${this.entry}
+                    .device=${service}
+                    .entities=${this.entities}
+                  ></ha-config-entry-device-row>`
+              )}
+            `
+          : nothing
+      }
+    </div>`;
   }
 
   private _toggleExpand() {
@@ -281,14 +307,16 @@ class HaConfigSubEntryRow extends LitElement {
     .expand-button.expanded {
       transform: rotate(180deg);
     }
-    ha-md-list {
+    .sub-entry-card {
       border: 1px solid var(--divider-color);
       border-radius: var(--ha-card-border-radius, var(--ha-border-radius-lg));
-      padding: 0;
       margin: 16px;
       margin-top: 0;
     }
-    ha-md-list-item.has-subentries {
+    ha-icon-button {
+      color: var(--ha-color-fill-neutral-loud-resting);
+    }
+    ha-list-item-base.has-subentries {
       border-bottom: 1px solid var(--divider-color);
     }
     ha-dropdown a {

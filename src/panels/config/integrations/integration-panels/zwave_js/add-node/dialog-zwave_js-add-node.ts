@@ -1,4 +1,4 @@
-import { mdiChevronLeft, mdiClose } from "@mdi/js";
+import { mdiChevronLeft, mdiChevronRight, mdiClose } from "@mdi/js";
 import type { UnsubscribeFunc } from "home-assistant-js-websocket";
 import type { CSSResultGroup, TemplateResult } from "lit";
 import { css, html, LitElement, nothing } from "lit";
@@ -64,6 +64,7 @@ import "./zwave-js-add-node-loading";
 import "./zwave-js-add-node-searching-devices";
 import "./zwave-js-add-node-select-method";
 import "./zwave-js-add-node-select-security-strategy";
+import { mainWindow } from "../../../../../../common/dom/get_main_window";
 
 const INCLUSION_TIMEOUT_MINUTES = 5;
 
@@ -149,9 +150,13 @@ class DialogZWaveJSAddNode extends LitElement {
       >
         <ha-dialog-header slot="header"> ${headerHtml} </ha-dialog-header>
         ${content}
-        ${actions === nothing
-          ? nothing
-          : html`<ha-dialog-footer slot="footer">${actions}</ha-dialog-footer>`}
+        ${
+          actions === nothing
+            ? nothing
+            : html`<ha-dialog-footer slot="footer"
+                >${actions}</ha-dialog-footer
+              >`
+        }
       </ha-dialog>
     `;
   }
@@ -180,7 +185,8 @@ class DialogZWaveJSAddNode extends LitElement {
       (this._step && backButtonStages.includes(this._step)) ||
       (this._step === "search_devices" && this._supportsSmartStart)
     ) {
-      icon = mdiChevronLeft;
+      icon =
+        mainWindow.document.dir === "rtl" ? mdiChevronRight : mdiChevronLeft;
     }
 
     let titleTranslationKey = "title";
@@ -227,14 +233,16 @@ class DialogZWaveJSAddNode extends LitElement {
     );
 
     return html`
-      ${icon
-        ? html`<ha-icon-button
-            slot="navigationIcon"
-            @click=${this._handleCloseOrBack}
-            .label=${this.hass.localize("ui.common.close")}
-            .path=${icon}
-          ></ha-icon-button>`
-        : nothing}
+      ${
+        icon
+          ? html`<ha-icon-button
+              slot="navigationIcon"
+              @click=${this._handleCloseOrBack}
+              .label=${this.hass.localize("ui.common.close")}
+              .path=${icon}
+            ></ha-icon-button>`
+          : nothing
+      }
       <span slot="title">${headerText}</span>
     `;
   }
@@ -252,7 +260,6 @@ class DialogZWaveJSAddNode extends LitElement {
       return html`
         <div>
           <ha-qr-scanner
-            .hass=${this.hass}
             @qr-code-scanned=${this._qrCodeScanned}
             @qr-code-closed=${this.closeDialog}
             @qr-code-more-options=${this._qrScanShowMoreOptions}
@@ -290,8 +297,9 @@ class DialogZWaveJSAddNode extends LitElement {
           .showAddAnotherDevice=${this._step === "search_smart_start_device"}
           .showSecurityOptions=${this._step === "search_devices"}
           .inclusionStrategy=${this._inclusionStrategy}
-          @show-z-wave-security-options=${this
-            ._searchDevicesShowSecurityOptions}
+          @show-z-wave-security-options=${
+            this._searchDevicesShowSecurityOptions
+          }
           @add-another-z-wave-device=${this._addAnotherDevice}
         ></zwave-js-add-node-searching-devices>
       `;
@@ -300,6 +308,7 @@ class DialogZWaveJSAddNode extends LitElement {
     if (this._step === "choose_security_strategy") {
       return html`<zwave-js-add-node-select-security-strategy
         .hass=${this.hass}
+        .inclusionStrategy=${this._inclusionStrategy}
         @z-wave-strategy-selected=${this._setSecurityStrategy}
       ></zwave-js-add-node-select-security-strategy>`;
     }
@@ -308,9 +317,11 @@ class DialogZWaveJSAddNode extends LitElement {
       return html`<zwave-js-add-node-configure-device
         .hass=${this.hass}
         .deviceName=${this._device?.name ?? ""}
-        .longRangeSupported=${!!this._device?.provisioningInfo?.supportedProtocols?.includes(
-          Protocols.ZWaveLongRange
-        ) && this._controllerSupportsLongRange}
+        .longRangeSupported=${
+          !!this._device?.provisioningInfo?.supportedProtocols?.includes(
+            Protocols.ZWaveLongRange
+          ) && this._controllerSupportsLongRange
+        }
         @value-changed=${this._setDeviceOptions}
       ></zwave-js-add-node-configure-device> `;
     }
@@ -342,9 +353,9 @@ class DialogZWaveJSAddNode extends LitElement {
       return html`
         <zwave-js-add-node-loading
           .hass=${this.hass}
-          .progress=${this._step === "interviewing"
-            ? this._interviewProgress
-            : undefined}
+          .progress=${
+            this._step === "interviewing" ? this._interviewProgress : undefined
+          }
           .description=${this.hass.localize(
             `ui.panel.config.zwave_js.add_node.${this._step !== "rename_device" ? "getting_device_information" : "saving_device"}`
           )}
@@ -521,7 +532,7 @@ class DialogZWaveJSAddNode extends LitElement {
           }
         );
         this._controllerSupportsLongRange =
-          zwaveNetwork?.controller?.supports_long_range;
+          zwaveNetwork?.controller?.supports_long_range ?? undefined;
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error(err);
@@ -892,7 +903,7 @@ class DialogZWaveJSAddNode extends LitElement {
           this._deviceOptions.name,
           this._deviceOptions.area
         );
-        this._device.id = id;
+        this._device.id = id ?? undefined;
         this._subscribeNewDeviceSearch();
         this._step = "search_smart_start_device";
       } catch (err: any) {
@@ -936,8 +947,8 @@ class DialogZWaveJSAddNode extends LitElement {
                   (entity.name === oldDeviceName ||
                     entity.name === newDeviceName)
                 ) {
-                  // clear name if it matches the device name and it uses the device name (entity naming)
-                  newName = null;
+                  // Use the device name when the entity name matches it
+                  newName = "";
                 } else if (name && name.includes(oldDeviceName)) {
                   newName = name.replace(oldDeviceName, newDeviceName);
                 }
@@ -950,7 +961,7 @@ class DialogZWaveJSAddNode extends LitElement {
                 }
 
                 return updateEntityRegistryEntry(this.hass!, entity.entity_id, {
-                  name: newName || name,
+                  name: newName ?? name,
                   new_entity_id: newEntityId || undefined,
                 });
               })

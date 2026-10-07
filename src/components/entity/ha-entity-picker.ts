@@ -1,15 +1,28 @@
 import type { RenderItemFunction } from "@lit-labs/virtualizer/virtualize";
+import type { ContextType } from "@lit/context";
 import { mdiPlus, mdiShape } from "@mdi/js";
 import { html, LitElement, nothing, type PropertyValues } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
+import { consume } from "../../common/decorators/consume";
 import { fireEvent } from "../../common/dom/fire_event";
 import { computeEntityPickerDisplay } from "../../common/entity/compute_entity_name_display";
 import { isValidEntityId } from "../../common/entity/valid_entity_id";
+import type { RelatedIdSets } from "../../common/search/related-context";
+import type { LocalizeFunc } from "../../common/translations/localize";
+import {
+  configContext,
+  internationalizationContext,
+  registriesContext,
+  relatedContext,
+  statesContext,
+} from "../../data/context";
 import type { HaEntityPickerEntityFilterFunc } from "../../data/entity/entity";
 import {
   entityComboBoxKeys,
   getEntities,
+  markEntitiesRelated,
+  sortEntitiesByRelatedRank,
   type EntityComboBoxItem,
 } from "../../data/entity/entity_picker";
 import { domainToName } from "../../data/integration";
@@ -33,7 +46,21 @@ const CREATE_ID = "___create-new-entity___";
 
 @customElement("ha-entity-picker")
 export class HaEntityPicker extends LitElement {
-  @property({ attribute: false }) public hass!: HomeAssistant;
+  @state()
+  @consume({ context: statesContext, subscribe: true })
+  private _states!: ContextType<typeof statesContext>;
+
+  @state()
+  @consume({ context: registriesContext, subscribe: true })
+  private _registries!: ContextType<typeof registriesContext>;
+
+  @state()
+  @consume({ context: internationalizationContext, subscribe: true })
+  private _i18n!: ContextType<typeof internationalizationContext>;
+
+  @state()
+  @consume({ context: configContext, subscribe: true })
+  private _config!: ContextType<typeof configContext>;
 
   // eslint-disable-next-line lit/no-native-attributes
   @property({ type: Boolean }) public autofocus = false;
@@ -131,12 +158,25 @@ export class HaEntityPicker extends LitElement {
 
   @state() private _pendingEntityId?: string;
 
-  protected willUpdate(changedProperties: PropertyValues<this>) {
+  @state()
+  @consume({ context: relatedContext, subscribe: true })
+  private _relatedIdSets?: RelatedIdSets;
+
+  private get _hasRelatedContext(): boolean {
+    const related = this._relatedIdSets;
+    return (
+      !!related &&
+      (related.entities.size > 0 ||
+        related.devices.size > 0 ||
+        related.areas.size > 0)
+    );
+  }
+
+  protected willUpdate(changedProperties: PropertyValues) {
     if (
       this._pendingEntityId &&
-      changedProperties.has("hass") &&
-      this.hass.states !== changedProperties.get("hass")?.states &&
-      this.hass.states[this._pendingEntityId]
+      changedProperties.has("_states") &&
+      this._states[this._pendingEntityId]
     ) {
       this._setValue(this._pendingEntityId);
       this._pendingEntityId = undefined;
@@ -146,7 +186,7 @@ export class HaEntityPicker extends LitElement {
   protected firstUpdated(changedProperties: PropertyValues<this>): void {
     super.firstUpdated(changedProperties);
     // Load title translations so it is available when the combo-box opens
-    this.hass.loadBackendTranslation("title");
+    this._i18n.loadBackendTranslation("title");
   }
 
   private _findExtraOption(value: string | undefined) {
@@ -157,7 +197,7 @@ export class HaEntityPicker extends LitElement {
 
   private _renderExtraOptionStart(extraOption: EntitySelectorExtraOption) {
     const stateObj = extraOption.entity_id
-      ? this.hass.states[extraOption.entity_id]
+      ? this._states[extraOption.entity_id]
       : undefined;
     if (stateObj) {
       return html`
@@ -187,13 +227,15 @@ export class HaEntityPicker extends LitElement {
       return html`
         ${this._renderExtraOptionStart(extraOption)}
         <span slot="headline">${extraOption.primary}</span>
-        ${extraOption.secondary
-          ? html`<span slot="supporting-text">${extraOption.secondary}</span>`
-          : nothing}
+        ${
+          extraOption.secondary
+            ? html`<span slot="supporting-text">${extraOption.secondary}</span>`
+            : nothing
+        }
       `;
     }
 
-    const stateObj = this.hass.states[entityId];
+    const stateObj = this._states[entityId];
 
     if (!stateObj) {
       return html`
@@ -207,7 +249,11 @@ export class HaEntityPicker extends LitElement {
     }
 
     const { primary, secondary } = computeEntityPickerDisplay(
-      this.hass,
+      {
+        ...this._registries,
+        language: this._i18n.language,
+        translationMetadata: this._i18n.translationMetadata,
+      },
       stateObj
     );
 
@@ -219,7 +265,7 @@ export class HaEntityPicker extends LitElement {
   };
 
   private get _showEntityId() {
-    return this.showEntityId || this.hass.userData?.showEntityIdPicker;
+    return this.showEntityId || this._config.userData?.showEntityIdPicker;
   }
 
   private _rowRenderer: RenderItemFunction<EntityComboBoxItem> = (
@@ -229,55 +275,60 @@ export class HaEntityPicker extends LitElement {
     const showEntityId = this._showEntityId;
 
     return html`
-      <ha-combo-box-item type="button" compact .borderTop=${index !== 0}>
-        ${item.icon_path
-          ? html`
-              <ha-svg-icon
-                slot="start"
-                style="margin: 0 4px"
-                .path=${item.icon_path}
-              ></ha-svg-icon>
-            `
-          : html`
-              <state-badge
-                slot="start"
-                .stateObj=${item.stateObj}
-              ></state-badge>
-            `}
+      <ha-combo-box-item .borderTop=${index !== 0}>
+        ${
+          item.icon_path
+            ? html`
+                <ha-svg-icon
+                  slot="start"
+                  style="margin: 0 4px"
+                  .path=${item.icon_path}
+                ></ha-svg-icon>
+              `
+            : html`
+                <state-badge
+                  slot="start"
+                  .stateObj=${item.stateObj}
+                ></state-badge>
+              `
+        }
         <span slot="headline">${item.primary}</span>
-        ${item.secondary
-          ? html`<span slot="supporting-text">${item.secondary}</span>`
-          : nothing}
-        ${item.stateObj && showEntityId
-          ? html`
-              <span slot="supporting-text" class="code">
-                ${item.stateObj.entity_id}
-              </span>
-            `
-          : nothing}
-        ${item.domain_name && !showEntityId
-          ? html`
-              <div slot="trailing-supporting-text" class="domain">
-                ${item.domain_name}
-              </div>
-            `
-          : nothing}
+        ${
+          item.secondary
+            ? html`<span slot="supporting-text">${item.secondary}</span>`
+            : nothing
+        }
+        ${
+          item.stateObj && showEntityId
+            ? html`
+                <span slot="supporting-text" class="code">
+                  ${item.stateObj.entity_id}
+                </span>
+              `
+            : nothing
+        }
+        ${
+          item.domain_name && !showEntityId
+            ? html`
+                <div slot="trailing-supporting-text" class="domain">
+                  ${item.domain_name}
+                </div>
+              `
+            : nothing
+        }
       </ha-combo-box-item>
     `;
   };
 
   private _getAdditionalItems = () =>
-    this._getCreateItems(this.hass.localize, this.createDomains);
+    this._getCreateItems(this._i18n.localize, this.createDomains);
 
   private _getCreateItems = memoizeOne(
-    (
-      localize: this["hass"]["localize"],
-      createDomains: this["createDomains"]
-    ) => {
+    (localize: LocalizeFunc, createDomains: this["createDomains"]) => {
       if (!createDomains?.length) {
         return [];
       }
-      this.hass.loadFragmentTranslation("config");
+      this._i18n.loadFragmentTranslation("config");
       return createDomains.map((domain) => {
         const primary = localize(
           "ui.components.entity.entity-picker.create_helper",
@@ -302,7 +353,9 @@ export class HaEntityPicker extends LitElement {
 
   private _getEntitiesMemoized = memoizeOne(
     (
-      hass: HomeAssistant,
+      states: ContextType<typeof statesContext>,
+      registries: ContextType<typeof registriesContext>,
+      i18n: ContextType<typeof internationalizationContext>,
       includeDomains?: string[],
       excludeDomains?: string[],
       entityFilter?: HaEntityPickerEntityFilterFunc,
@@ -312,21 +365,46 @@ export class HaEntityPicker extends LitElement {
       excludeEntities?: string[],
       value?: string
     ) =>
-      getEntities(hass, {
-        includeDomains,
-        excludeDomains,
-        entityFilter,
-        includeDeviceClasses,
-        includeUnitOfMeasurement,
-        includeEntities,
-        excludeEntities,
-        value,
-      })
+      getEntities(
+        {
+          states,
+          ...registries,
+          language: i18n.language,
+          translationMetadata: i18n.translationMetadata,
+          localize: i18n.localize,
+        },
+        {
+          includeDomains,
+          excludeDomains,
+          entityFilter,
+          includeDeviceClasses,
+          includeUnitOfMeasurement,
+          includeEntities,
+          excludeEntities,
+          value,
+        }
+      )
+  );
+
+  private _sortByRelatedContext = memoizeOne(
+    (
+      items: EntityComboBoxItem[],
+      related: RelatedIdSets,
+      entities: HomeAssistant["entities"],
+      devices: HomeAssistant["devices"],
+      language: string
+    ): EntityComboBoxItem[] =>
+      sortEntitiesByRelatedRank(
+        markEntitiesRelated(items, related, entities, devices),
+        language
+      )
   );
 
   private _getItems = () => {
-    const items = this._getEntitiesMemoized(
-      this.hass,
+    const entityItems = this._getEntitiesMemoized(
+      this._states,
+      this._registries,
+      this._i18n,
       this.includeDomains,
       this.excludeDomains,
       this.entityFilter,
@@ -336,14 +414,23 @@ export class HaEntityPicker extends LitElement {
       this.excludeEntities,
       this.value
     );
+    const sortedItems = this._hasRelatedContext
+      ? this._sortByRelatedContext(
+          entityItems,
+          this._relatedIdSets!,
+          this._registries.entities,
+          this._registries.devices,
+          this._i18n.locale.language
+        )
+      : entityItems;
     if (this.extraOptions?.length) {
       const resolvedExtras = this.extraOptions.map((opt) => ({
         ...opt,
-        stateObj: opt.entity_id ? this.hass.states[opt.entity_id] : undefined,
+        stateObj: opt.entity_id ? this._states[opt.entity_id] : undefined,
       }));
-      return [...resolvedExtras, ...items];
+      return [...resolvedExtras, ...sortedItems];
     }
-    return items;
+    return sortedItems;
   };
 
   private _shouldHideClearIcon() {
@@ -353,11 +440,10 @@ export class HaEntityPicker extends LitElement {
   protected render() {
     const placeholder =
       this.placeholder ??
-      this.hass.localize("ui.components.entity.entity-picker.placeholder");
+      this._i18n.localize("ui.components.entity.entity-picker.placeholder");
 
     return html`
       <ha-generic-picker
-        .hass=${this.hass}
         .disabled=${this.disabled}
         .autofocus=${this.autofocus}
         .allowCustomValue=${this.allowCustomEntity}
@@ -375,12 +461,15 @@ export class HaEntityPicker extends LitElement {
         .searchFn=${this._searchFn}
         .valueRenderer=${this._valueRenderer}
         .searchKeys=${entityComboBoxKeys}
+        .noSort=${this._hasRelatedContext}
         use-top-label
-        .addButtonLabel=${this.addButton
-          ? (this.addButtonLabel ??
-            this.hass.localize("ui.components.entity.entity-picker.add"))
-          : undefined}
-        .unknownItemText=${this.hass.localize(
+        .addButtonLabel=${
+          this.addButton
+            ? (this.addButtonLabel ??
+              this._i18n.localize("ui.components.entity.entity-picker.add"))
+            : undefined
+        }
+        .unknownItemText=${this._i18n.localize(
           "ui.components.entity.entity-picker.unknown"
         )}
         @value-changed=${this._valueChanged}
@@ -393,17 +482,23 @@ export class HaEntityPicker extends LitElement {
     search,
     filteredItems
   ) => {
+    // Float related items to the top by closeness, keeping search relevance
+    // order within each tier.
+    const items = this._hasRelatedContext
+      ? sortEntitiesByRelatedRank(filteredItems)
+      : filteredItems;
+
     // If there is exact match for entity id, put it first
-    const index = filteredItems.findIndex(
+    const index = items.findIndex(
       (item) => item.stateObj?.entity_id === search
     );
     if (index === -1) {
-      return filteredItems;
+      return items;
     }
 
-    const [exactMatch] = filteredItems.splice(index, 1);
-    filteredItems.unshift(exactMatch);
-    return filteredItems;
+    const [exactMatch] = items.splice(index, 1);
+    items.unshift(exactMatch);
+    return items;
   };
 
   public async open() {
@@ -427,7 +522,7 @@ export class HaEntityPicker extends LitElement {
         domain,
         dialogClosedCallback: (item) => {
           if (item.entityId) {
-            if (this.hass.states[item.entityId]) {
+            if (this._states[item.entityId]) {
               this._setValue(item.entityId);
             } else {
               this._pendingEntityId = item.entityId;
@@ -453,7 +548,7 @@ export class HaEntityPicker extends LitElement {
   }
 
   private _notFoundLabel = (search: string) =>
-    this.hass.localize("ui.components.entity.entity-picker.no_match", {
+    this._i18n.localize("ui.components.entity.entity-picker.no_match", {
       term: html`<b>‘${search}’</b>`,
     });
 }

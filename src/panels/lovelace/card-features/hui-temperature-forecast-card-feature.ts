@@ -1,4 +1,3 @@
-import { consume } from "@lit/context";
 import { ResizeController } from "@lit-labs/observers/resize-controller";
 import type {
   Connection,
@@ -11,6 +10,7 @@ import { css, html, LitElement, nothing, svg } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import { styleMap } from "lit/directives/style-map";
+import { consume } from "../../../common/decorators/consume";
 import { computeCssColor } from "../../../common/color/compute-color";
 import { UNIT_F } from "../../../common/const";
 import { consumeEntityState } from "../../../common/decorators/consume-context-entry";
@@ -176,8 +176,7 @@ class HuiTemperatureForecastCardFeature
   private _shouldResubscribe(changedProps: PropertyValues): boolean {
     if (changedProps.has("context")) {
       const previous = changedProps.get("context") as
-        | LovelaceCardFeatureContext
-        | undefined;
+        LovelaceCardFeatureContext | undefined;
       if (previous?.entity_id !== this.context?.entity_id) return true;
     }
     if (changedProps.has("_config")) {
@@ -270,9 +269,11 @@ class HuiTemperatureForecastCardFeature
               style=${graphStyle}
             ></hui-graph-base>
           </div>
-          ${this._showLabels && this._locale
-            ? renderHourLabels(hoursToShow, this._locale)
-            : nothing}
+          ${
+            this._showLabels && this._locale
+              ? renderHourLabels(hoursToShow, this._locale)
+              : nothing
+          }
         </div>
       `;
     }
@@ -301,9 +302,11 @@ class HuiTemperatureForecastCardFeature
     return html`
       <div class=${containerClasses}>
         <div class="bars">${this._renderBars(entries, customColor)}</div>
-        ${this._showLabels && this._locale
-          ? renderDayLabels(entries, entriesPerDay, this._locale)
-          : nothing}
+        ${
+          this._showLabels && this._locale
+            ? renderDayLabels(entries, entriesPerDay, this._locale)
+            : nothing
+        }
       </div>
     `;
   }
@@ -527,14 +530,6 @@ class HuiTemperatureForecastCardFeature
         flex-direction: column;
         justify-content: center;
         align-items: stretch;
-        border-bottom-right-radius: 8px;
-        border-bottom-left-radius: 8px;
-        overflow: hidden;
-      }
-
-      .container.with-labels {
-        border-bottom-right-radius: 0;
-        border-bottom-left-radius: 0;
       }
 
       .bars {
@@ -561,6 +556,9 @@ class HuiTemperatureForecastCardFeature
         width: 100%;
         height: 100%;
         --accent-color: var(--feature-color);
+        border-bottom-right-radius: 8px;
+        border-bottom-left-radius: 8px;
+        overflow: hidden;
       }
     `,
   ];

@@ -76,11 +76,14 @@ export class RelatedContextProvider {
   }
 
   private _onRelatedContext = (
-    ev: HASSDomEvent<RelatedContextItem | undefined>
+    ev: HASSDomEvent<HASSDomEvents["hass-related-context"]>
   ): void => {
-    this._relatedContext = ev.detail;
-    this._contextPathname = mainWindow.location.pathname;
-    this._resolveRelatedContext(this._relatedContext);
+    // `fireEvent` coerces an undefined detail to `{}`, so a clear arrives
+    // without an itemId; normalise that back to undefined.
+    const context = ev.detail?.itemId ? ev.detail : undefined;
+    this._relatedContext = context;
+    this._contextPathname = context ? mainWindow.location.pathname : undefined;
+    this._resolveRelatedContext(context);
   };
 
   /**
@@ -118,7 +121,7 @@ export class RelatedContextProvider {
         context.itemId
       );
       if (this._contextMatches(context)) {
-        this._setValue(buildRelatedIdSets(related));
+        this._setValue(buildRelatedIdSets(related, context));
       }
     } catch (_err) {
       if (this._contextMatches(context)) {

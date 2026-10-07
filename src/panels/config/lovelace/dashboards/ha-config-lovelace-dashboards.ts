@@ -101,6 +101,10 @@ export class HaConfigLovelaceDashboards extends LitElement {
 
   @state() private _dashboards: LovelaceDashboard[] = [];
 
+  @state() private _loading = true;
+
+  @state() private _loadFailed = false;
+
   @state()
   @storage({
     storage: "sessionStorage",
@@ -192,23 +196,25 @@ export class HaConfigLovelaceDashboards extends LitElement {
                     style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;"
                     >${dashboard.title}</span
                   >
-                  ${dashboard.default
-                    ? html`
-                        <ha-svg-icon
-                          .id="default-icon-${dashboard.title}"
-                          style="flex-shrink:0;"
-                          .path=${mdiHomeCircleOutline}
-                        ></ha-svg-icon>
-                        <ha-tooltip
-                          .for="default-icon-${dashboard.title}"
-                          placement="right"
-                        >
-                          ${this.hass.localize(
-                            `ui.panel.config.lovelace.dashboards.default_dashboard`
-                          )}
-                        </ha-tooltip>
-                      `
-                    : nothing}
+                  ${
+                    dashboard.default
+                      ? html`
+                          <ha-svg-icon
+                            .id="default-icon-${dashboard.title}"
+                            style="flex-shrink:0;"
+                            .path=${mdiHomeCircleOutline}
+                          ></ha-svg-icon>
+                          <ha-tooltip
+                            .for="default-icon-${dashboard.title}"
+                            placement="right"
+                          >
+                            ${this.hass.localize(
+                              `ui.panel.config.lovelace.dashboards.default_dashboard`
+                            )}
+                          </ha-tooltip>
+                        `
+                      : nothing
+                  }
                 </span>
               `,
         },
@@ -230,9 +236,11 @@ export class HaConfigLovelaceDashboards extends LitElement {
         sortable: true,
         filterable: true,
         template: (dashboard) => html`
-          ${this.hass.localize(
-            `ui.panel.config.lovelace.dashboards.conf_mode.${dashboard.mode}`
-          ) || dashboard.mode}
+          ${
+            this.hass.localize(
+              `ui.panel.config.lovelace.dashboards.conf_mode.${dashboard.mode}`
+            ) || dashboard.mode
+          }
         `,
       };
       if (dashboards.some((dashboard) => dashboard.filename)) {
@@ -405,11 +413,12 @@ export class HaConfigLovelaceDashboards extends LitElement {
           this._dashboards,
           this.hass.localize
         )}
-        .data=${this._getItems(
-          this._dashboards,
-          defaultPanel,
-          this.hass.panels
-        )}
+        .loading=${this._loading}
+        .data=${
+          this._loading
+            ? []
+            : this._getItems(this._dashboards, defaultPanel, this.hass.panels)
+        }
         .initialGroupColumn=${this._activeGrouping}
         .initialCollapsedGroups=${this._activeCollapsed}
         .initialSorting=${this._activeSorting}
@@ -422,6 +431,14 @@ export class HaConfigLovelaceDashboards extends LitElement {
         .filter=${this._filter}
         @search-changed=${this._handleSearchChange}
         @row-click=${this._handleRowClicked}
+        .loadError=${
+          this._loadFailed
+            ? this.hass.localize(
+                "ui.panel.config.lovelace.dashboards.picker.load_failed"
+              )
+            : undefined
+        }
+        @retry-load=${this._retryGetDashboards}
         id="url_path"
         has-fab
         clickable
@@ -472,7 +489,19 @@ export class HaConfigLovelaceDashboards extends LitElement {
   }
 
   private async _getDashboards() {
-    this._dashboards = await fetchDashboards(this.hass);
+    try {
+      this._dashboards = await fetchDashboards(this.hass);
+      this._loadFailed = false;
+    } catch {
+      this._loadFailed = true;
+    } finally {
+      this._loading = false;
+    }
+  }
+
+  private _retryGetDashboards() {
+    this._loading = true;
+    this._getDashboards();
   }
 
   private _handleRowClicked(ev: CustomEvent) {

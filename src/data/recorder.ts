@@ -1,11 +1,11 @@
 import type { Connection } from "home-assistant-js-websocket";
-import { computeStateName } from "../common/entity/compute_state_name";
+import { DEFAULT_ENTITY_NAME } from "../common/entity/entity_name_config";
 import type { HaDurationData } from "../components/ha-duration-input";
 import type { HomeAssistant } from "../types";
 import { firstWeekday } from "../common/datetime/first_weekday";
 
 export interface RecorderInfo {
-  backlog: number | null;
+  backlog: number;
   db_in_default_location: boolean;
   max_backlog: number;
   migration_in_progress: boolean;
@@ -33,10 +33,10 @@ export interface StatisticValue {
 }
 
 export interface Statistic {
-  max: number | null;
-  mean: number | null;
-  min: number | null;
-  change: number | null;
+  max?: number | null;
+  mean?: number | null;
+  min?: number | null;
+  change?: number | null;
 }
 
 export enum StatisticMeanType {
@@ -96,11 +96,11 @@ export interface StatisticsValidationResultUnitsChanged {
   type: "units_changed";
   data: {
     statistic_id: string;
-    state_unit: string;
+    state_unit: string | null;
     state_unit_class: string | null;
-    metadata_unit: string;
+    metadata_unit: string | null;
     metadata_unit_class: string | null;
-    supported_unit: string;
+    supported_unit: string | null;
   };
 }
 
@@ -119,15 +119,7 @@ export interface StatisticsUnitConfiguration {
   energy?: "Wh" | "kWh" | "MWh" | "GJ";
   power?: "W" | "kW";
   pressure?:
-    | "Pa"
-    | "hPa"
-    | "kPa"
-    | "bar"
-    | "cbar"
-    | "mbar"
-    | "inHg"
-    | "psi"
-    | "mmHg";
+    "Pa" | "hPa" | "kPa" | "bar" | "cbar" | "mbar" | "inHg" | "psi" | "mmHg";
   temperature?: "°C" | "°F" | "K";
   volume?: (typeof VOLUME_UNITS)[number];
 }
@@ -153,26 +145,32 @@ export const getRecorderInfo = (conn: Connection) =>
     type: "recorder/info",
   });
 
-export const getStatisticIds = (
+export type EntityRecordingDisabler = "user";
+
+export interface RecorderEntityOptions {
+  recording_disabled_by: EntityRecordingDisabler | null;
+}
+
+export const getRecorderEntityOptions = (
   hass: Pick<HomeAssistant, "callWS">,
-  statistic_type?: "mean" | "sum"
+  entity_id: string
 ) =>
-  hass.callWS<StatisticsMetaData[]>({
-    type: "recorder/list_statistic_ids",
-    statistic_type,
+  hass.callWS<RecorderEntityOptions>({
+    type: "recorder/entity_options/get",
+    entity_id,
   });
 
 export const getStatisticMetadata = (
-  hass: HomeAssistant,
+  callWS: HomeAssistant["callWS"],
   statistic_ids?: string[]
 ) =>
-  hass.callWS<StatisticsMetaData[]>({
+  callWS<StatisticsMetaData[]>({
     type: "recorder/get_statistics_metadata",
     statistic_ids,
   });
 
 export const fetchStatistics = (
-  hass: HomeAssistant,
+  callWS: HomeAssistant["callWS"],
   startTime: Date,
   endTime?: Date,
   statistic_ids?: string[],
@@ -180,7 +178,7 @@ export const fetchStatistics = (
   units?: StatisticsUnitConfiguration,
   types?: StatisticsTypes
 ) =>
-  hass.callWS<Statistics>({
+  callWS<Statistics>({
     type: "recorder/statistics_during_period",
     start_time: startTime.toISOString(),
     end_time: endTime?.toISOString(),
@@ -196,7 +194,7 @@ export const fetchStatistic = (
   period: {
     fixed_period?: { start: string | Date; end: string | Date };
     calendar?: { period: string; offset?: number };
-    rolling_window?: { duration: HaDurationData; offset: HaDurationData };
+    rolling_window?: { duration: HaDurationData; offset?: HaDurationData };
   },
   units?: StatisticsUnitConfiguration
 ) =>
@@ -344,25 +342,27 @@ export const adjustStatisticsSum = (
 };
 
 export const getStatisticLabel = (
-  hass: HomeAssistant,
+  states: HomeAssistant["states"],
+  formatEntityName: HomeAssistant["formatEntityName"],
   statisticsId: string,
   statisticsMetaData: StatisticsMetaData | undefined
 ): string => {
-  const entity = hass.states[statisticsId];
+  const entity = states[statisticsId];
   if (entity) {
-    return computeStateName(entity);
+    return formatEntityName(entity, DEFAULT_ENTITY_NAME);
   }
+  // External statistics have no entity to resolve a name against.
   return statisticsMetaData?.name || statisticsId;
 };
 
 export const getDisplayUnit = (
-  hass: HomeAssistant,
+  states: HomeAssistant["states"],
   statisticsId: string | undefined,
   statisticsMetaData: StatisticsMetaData | undefined
 ): string | null | undefined => {
   let unit: string | undefined;
   if (statisticsId) {
-    unit = hass.states[statisticsId]?.attributes.unit_of_measurement;
+    unit = states[statisticsId]?.attributes.unit_of_measurement;
   }
   return unit === undefined
     ? statisticsMetaData?.statistics_unit_of_measurement

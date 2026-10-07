@@ -5,6 +5,7 @@ import { customElement, property, query, state } from "lit/decorators";
 import memoizeOne from "memoize-one";
 import { isComponentLoaded } from "../../../common/config/is_component_loaded";
 import { dynamicElement } from "../../../common/dom/dynamic-element-directive";
+import type { HASSDomTargetEvent } from "../../../common/dom/fire_event";
 import { fireEvent } from "../../../common/dom/fire_event";
 import { stopPropagation } from "../../../common/dom/stop_propagation";
 import { stringCompare } from "../../../common/string/compare";
@@ -139,13 +140,18 @@ export class DialogHelperDetail extends DirtyStateProviderMixin<
     this._domain = params.domain;
     this._item = undefined;
     if (this._domain && this._domain in HELPERS) {
-      await HELPERS[this._domain].import();
-      this._initDirtyTracking({ type: "deep" }, undefined);
+      this._loading = true;
+      try {
+        await HELPERS[this._domain].import();
+        this._initDirtyTracking({ type: "deep" }, undefined);
+      } finally {
+        this._loading = false;
+      }
     }
     this._open = true;
     await this.updateComplete;
     this.hass.loadFragmentTranslation("config");
-    const flows = await getConfigFlowHandlers(this.hass, ["helper"]);
+    const flows = await getConfigFlowHandlers(this.hass, "helper");
     await this.hass.loadBackendTranslation("title", flows, true);
     // Ensure the titles are loaded before we render the flows.
     this._helperFlows = flows;
@@ -184,7 +190,7 @@ export class DialogHelperDetail extends DirtyStateProviderMixin<
     let content: TemplateResult;
     let footer: TemplateResult | typeof nothing = nothing;
 
-    if (this._domain) {
+    if (this._domain && !this._loading) {
       content = html`
         <div class="form" @value-changed=${this._valueChanged}>
           ${this._error ? html`<div class="error">${this._error}</div>` : ""}
@@ -198,16 +204,18 @@ export class DialogHelperDetail extends DirtyStateProviderMixin<
       `;
       footer = html`
         <ha-dialog-footer slot="footer">
-          ${this._params?.domain
-            ? nothing
-            : html`<ha-button
-                slot="secondaryAction"
-                appearance="plain"
-                @click=${this._goBack}
-                .disabled=${this._submitting}
-              >
-                ${this.hass!.localize("ui.common.back")}
-              </ha-button>`}
+          ${
+            this._params?.domain
+              ? nothing
+              : html`<ha-button
+                  slot="secondaryAction"
+                  appearance="plain"
+                  @click=${this._goBack}
+                  .disabled=${this._submitting}
+                >
+                  ${this.hass!.localize("ui.common.back")}
+                </ha-button>`
+          }
           <ha-button
             slot="primaryAction"
             @click=${this._createItem}
@@ -273,20 +281,22 @@ export class DialogHelperDetail extends DirtyStateProviderMixin<
                   referrerpolicy="no-referrer"
                 />
                 <span class="item-text"> ${label} </span>
-                ${isLoaded
-                  ? html`<ha-icon-next slot="meta"></ha-icon-next>`
-                  : html`<ha-svg-icon
-                        slot="meta"
-                        .id="icon-${domain}"
-                        path=${mdiAlertOutline}
-                        @click=${stopPropagation}
-                      ></ha-svg-icon>
-                      <ha-tooltip .for="icon-${domain}">
-                        ${this.hass.localize(
-                          "ui.dialogs.helper_settings.platform_not_loaded",
-                          { platform: domain }
-                        )}
-                      </ha-tooltip>`}
+                ${
+                  isLoaded
+                    ? html`<ha-icon-next slot="meta"></ha-icon-next>`
+                    : html`<ha-svg-icon
+                          slot="meta"
+                          .id="icon-${domain}"
+                          path=${mdiAlertOutline}
+                          @click=${stopPropagation}
+                        ></ha-svg-icon>
+                        <ha-tooltip .for="icon-${domain}">
+                          ${this.hass.localize(
+                            "ui.dialogs.helper_settings.platform_not_loaded",
+                            { platform: domain }
+                          )}
+                        </ha-tooltip>`
+                }
               </ha-list-item>
             `;
           })}
@@ -298,21 +308,23 @@ export class DialogHelperDetail extends DirtyStateProviderMixin<
       <ha-dialog
         .open=${this._open}
         .preventScrimClose=${this.isDirtyState}
-        header-title=${this._domain
-          ? this.hass.localize(
-              "ui.panel.config.helpers.dialog.create_platform",
-              {
-                platform:
-                  (isHelperDomain(this._domain) &&
-                    this.hass.localize(
-                      `ui.panel.config.helpers.types.${
-                        this._domain as HelperDomain
-                      }`
-                    )) ||
-                  this._domain,
-              }
-            )
-          : this.hass.localize("ui.panel.config.helpers.dialog.create_helper")}
+        header-title=${
+          this._domain
+            ? this.hass.localize(
+                "ui.panel.config.helpers.dialog.create_platform",
+                {
+                  platform:
+                    (isHelperDomain(this._domain) &&
+                      this.hass.localize(
+                        `ui.panel.config.helpers.types.${
+                          this._domain as HelperDomain
+                        }`
+                      )) ||
+                    this._domain,
+                }
+              )
+            : this.hass.localize("ui.panel.config.helpers.dialog.create_helper")
+        }
         @closed=${this._dialogClosed}
       >
         ${content} ${footer}
@@ -362,9 +374,8 @@ export class DialogHelperDetail extends DirtyStateProviderMixin<
     }
   );
 
-  private async _filterChanged(e: InputEvent) {
-    const target = e.target as HaInputSearch;
-    this._filter = target.value;
+  private async _filterChanged(e: HASSDomTargetEvent<HaInputSearch>) {
+    this._filter = e.target.value;
   }
 
   private _valueChanged(ev: CustomEvent): void {
