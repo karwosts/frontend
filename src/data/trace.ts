@@ -187,13 +187,22 @@ export const loadTrace = <T extends keyof TraceTypes>(
 export const loadTraces = <T extends keyof TraceTypes>(
   hass: HomeAssistant,
   domain: T,
-  item_id?: string
+  item_id: string
 ): Promise<TraceTypes[T]["short"][]> =>
   hass.callWS({
     type: "trace/list",
     domain,
     item_id,
   });
+
+export const subscribeTraces = (
+  hass: HomeAssistant,
+  callback: (traces: Trace[]) => void
+) =>
+  hass.connection.subscribeMessage<{ traces: Trace[] }>(
+    (message) => callback(message.traces),
+    { type: "trace/subscribe" }
+  );
 
 export type TraceContexts = Record<
   string,

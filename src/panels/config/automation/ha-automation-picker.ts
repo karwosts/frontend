@@ -1,7 +1,6 @@
 import "@home-assistant/webawesome/dist/components/divider/divider";
 import { ResizeController } from "@lit-labs/observers/resize-controller";
 import {
-  mdiAlertCircleOutline,
   mdiCloseThick,
   mdiCog,
   mdiContentDuplicate,
@@ -68,7 +67,6 @@ import "../../../components/ha-svg-icon";
 import "../../../components/ha-switch";
 import type { HaSwitch } from "../../../components/ha-switch";
 import "../../../components/ha-tooltip";
-import "../../../components/data-table/ha-data-table-icon";
 import { createAreaRegistryEntry } from "../../../data/area/area_registry";
 import type { AutomationEntity } from "../../../data/automation";
 import {
@@ -122,6 +120,7 @@ import {
   getEntityIdHiddenTableColumn,
   getLabelsTableColumn,
   getTriggeredAtTableColumn,
+  renderRelativeTimeColumn,
 } from "../common/data-table-columns";
 import { configSections } from "../config-sections";
 import { showLabelDetailDialog } from "../labels/show-dialog-label-detail";
@@ -130,15 +129,9 @@ import {
   getAssistantsTableColumn,
 } from "../voice-assistants/expose/assistants-table-column";
 import { getAvailableAssistants } from "../voice-assistants/expose/available-assistants";
+import type { Trace } from "../../../data/trace";
+import { subscribeTraces } from "../../../data/trace";
 import { showNewAutomationDialog } from "./show-dialog-new-automation";
-import { loadTraces } from "../../../data/trace";
-import { relativeTime } from "../../../common/datetime/relative_time";
-
-interface ErrorDescription {
-  count: number;
-  total: number;
-  oldest?: Date;
-}
 
 const renderIconBadge = (path: string, color: string) => html`
   <div
@@ -172,9 +165,15 @@ type AutomationItem = AutomationEntity & {
   labels: string[]; // search only
   assistants: string[];
   assistants_sortable_key: string | undefined;
-  errors: undefined | ErrorDescription;
-  errors_sort: number;
+  last_error: string | undefined;
+  error_count: number;
 };
+
+interface AutomationErrors {
+  // Timestamp of the most recent trace that ended in an error
+  last_error: string;
+  count: number;
+}
 
 @customElement("ha-automation-picker")
 class HaAutomationPicker extends SubscribeMixin(LitElement) {
@@ -194,7 +193,7 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
 
   @state() private _filteredEntityIds?: string[] | null;
 
-  @state() private _errors: Record<string, ErrorDescription> = {};
+  @state() private _errors: Record<string, AutomationErrors> = {};
 
   @state()
   @storage({
@@ -279,7 +278,7 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
   private _automations = memoizeOne(
     (
       automations: AutomationEntity[],
-      errors: Record<string, ErrorDescription>,
+      errors: Record<string, AutomationErrors>,
       entityReg: EntityRegistryEntry[],
       areas: HomeAssistant["areas"],
       categoryReg?: CategoryRegistryEntry[],
@@ -314,12 +313,9 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
           entityReg,
           automation.entity_id
         );
-
-        const errorObject = automation.attributes.id
+        const automationErrors = automation.attributes.id
           ? errors[automation.attributes.id]
           : undefined;
-        const errors_sort = errorObject?.count || 0;
-
         return {
           ...automation,
           name: computeStateName(automation),
@@ -336,8 +332,8 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
           assistants,
           assistants_sortable_key: getAssistantsSortableKey(assistants),
           selectable: entityRegEntry !== undefined,
-          errors: errorObject,
-          errors_sort,
+          last_error: automationErrors?.last_error,
+          error_count: automationErrors?.count ?? 0,
         };
       });
     }
@@ -416,32 +412,27 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
               ? nothing
               : triggeredAtColumn.template!(automation),
         },
-        errors: {
-          title: localize("ui.panel.config.automation.picker.headers.errors"),
-          minWidth: "70px",
-          maxWidth: "70px",
+        last_error: {
+          title: localize(
+            "ui.panel.config.automation.picker.headers.last_error"
+          ),
           sortable: true,
           showNarrow: false,
-          type: "icon",
-          valueColumn: "errors_sort",
           template: (automation) =>
-            automation.errors?.count
-              ? html`<ha-data-table-icon
-                  .path=${mdiAlertCircleOutline}
-                  .tooltip=${localize(
-                    "ui.panel.config.automation.picker.result_errors",
-                    {
-                      count: automation.errors.count,
-                      time: relativeTime(
-                        automation.errors.oldest!,
-                        this.hass.locale,
-                        undefined,
-                        false
-                      ),
-                    }
-                  )}
-                  style="--ha-data-table-icon-color: var(--error-color);"
-                ></ha-data-table-icon>`
+            automation.last_error
+              ? html`<span style="color: var(--error-color)"
+                  >${renderRelativeTimeColumn(
+                    automation.last_error,
+                    "last-error",
+                    automation.entity_id,
+                    localize,
+                    this.hass
+                  )}${
+                    automation.error_count > 1
+                      ? ` (+${automation.error_count - 1})`
+                      : nothing
+                  }</span
+                >`
               : nothing,
         },
         formatted_state: {
@@ -516,6 +507,8 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
   };
 
   protected hassSubscribe(): (UnsubscribeFunc | Promise<UnsubscribeFunc>)[] {
+    // The trace subscription replays all stored traces, so count from scratch
+    this._errors = {};
     return [
       subscribeCategoryRegistry(
         this.hass.connection,
@@ -524,8 +517,31 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
           this._categories = categories;
         }
       ),
+      subscribeTraces(this.hass, this._handleTraces),
     ];
   }
+
+  private _handleTraces = (traces: Trace[]) => {
+    let errors: Record<string, AutomationErrors> | undefined;
+    for (const trace of traces) {
+      if (trace.domain !== "automation" || trace.script_execution !== "error") {
+        continue;
+      }
+      errors ??= { ...this._errors };
+      const timestamp = trace.timestamp.finish ?? trace.timestamp.start;
+      const existing = errors[trace.item_id];
+      errors[trace.item_id] = {
+        last_error:
+          existing && new Date(existing.last_error) > new Date(timestamp)
+            ? existing.last_error
+            : timestamp,
+        count: (existing?.count ?? 0) + 1,
+      };
+    }
+    if (errors) {
+      this._errors = errors;
+    }
+  };
 
   protected render(): TemplateResult {
     const areasInOverflow =
@@ -924,29 +940,6 @@ class HaAutomationPicker extends SubscribeMixin(LitElement) {
     if (changedProps.has("_entityReg")) {
       this._applyFilters();
     }
-  }
-
-  firstUpdated() {
-    loadTraces(this.hass, "automation").then((traces) => {
-      this._errors = traces.reduce((acc, trace) => {
-        const id = trace.item_id;
-        const ts = trace.timestamp.finish || trace.timestamp.start;
-        if (!acc[id]) {
-          acc[id] = { count: 0, total: 0 };
-        }
-
-        acc[id].total += 1;
-        if (trace.script_execution === "error") {
-          acc[id].count += 1;
-          const date = new Date(ts);
-          if (!acc[id].oldest || date < acc[id].oldest) {
-            acc[id].oldest = date;
-          }
-        }
-
-        return acc;
-      }, {});
-    });
   }
 
   private _filterExpanded(ev) {
